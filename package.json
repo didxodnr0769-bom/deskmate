@@ -1,0 +1,39 @@
+{
+  "name": "deskmate",
+  "productName": "Desktop Companion",
+  "version": "0.4.1",
+  "private": true,
+  "license": "MIT",
+  "description": "A tiny, customizable macOS desktop companion with workday progress, to-dos, and quiet reminders.",
+  "main": "dist/main/bootstrap.cjs",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "postinstall": "install-electron",
+    "build": "npm run typecheck && node scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "start": "electron .",
+    "dev": "npm run build && electron .",
+    "package:mac": "npm run build && node scripts/package.mjs"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "electron": "44.8.0",
+    "esbuild": "0.28.2",
+    "playwright": "1.64.1",
+    "tsx": "^4.20.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.4"
+  }
+}
