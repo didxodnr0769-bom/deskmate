@@ -1,8 +1,9 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AgentConnection } from '../../shared/chat';
+import type { AgentConnection, ChatMessage } from '../../shared/chat';
 import { MAX_CHAT_ANSWER_LENGTH, MAX_CHAT_QUESTION_LENGTH } from '../../shared/chat';
+import { APP_COMMAND_INSTRUCTIONS, CHAT_INSTRUCTIONS, buildChatPrompt } from './prompt';
 import { AgentError, type AgentProvider } from './provider';
 import { discoverCodex, type CodexExecutable } from './discovery';
 import { runProcess, type ProcessRunner, type ProcessResult } from './process';
@@ -17,7 +18,6 @@ const DISABLED_FEATURES = [
   'code_mode_host', 'skill_search', 'sleep_tool', 'in_app_browser',
   'workspace_dependencies', 'chronicle', 'remote_plugin', 'tool_suggest',
 ];
-const INSTRUCTIONS = '당신은 DeskMate의 대화 도우미입니다. 사용자의 질문에 한국어로 간결하게 답하세요. 도구 실행이나 파일 접근, 앱 설정 변경 없이 대화로만 답하세요.';
 
 interface CodexProviderOptions {
   runner?: ProcessRunner;
@@ -123,23 +123,30 @@ export class CodexProvider implements AgentProvider {
       return { status: 'error', message: 'Codex CLI 연결을 확인하지 못했습니다. 다시 시도해 주세요.' };
     }
   }
-  async ask({ question, signal }: { question: string; signal: AbortSignal }): Promise<string> {
+  async ask({ question, history = [], appCommands = false, signal }: { question: string; history?: readonly ChatMessage[]; appCommands?: boolean; signal: AbortSignal }): Promise<string> {
     if (signal.aborted) throw new AgentError('cancelled', '요청을 취소했습니다.');
     if (!question.trim() || question.length > MAX_CHAT_QUESTION_LENGTH) throw new AgentError('failed', '질문은 1자 이상 4,000자 이하로 입력해 주세요.');
+    const input = buildChatPrompt(question, history, { appCommands });
+    const instructions = appCommands ? APP_COMMAND_INSTRUCTIONS : CHAT_INSTRUCTIONS;
     const executable = await this.discover();
     return this.withDirectory(async (cwd) => {
       await this.verify(executable, cwd, signal);
+      const instructionsPath = join(cwd, 'conversation-instructions.md');
+      await writeFile(instructionsPath, instructions, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
       const args = [
         '-a', 'never', 'exec', '--json', '--ephemeral', '--ignore-user-config',
         '--skip-git-repo-check', '--sandbox', 'read-only', '--color', 'never',
         '-c', 'web_search="disabled"', '-c', 'project_doc_max_bytes=0',
         '-c', 'features.skip_host_skill_discovery=true',
-        '-c', 'developer_instructions=' + JSON.stringify(INSTRUCTIONS),
+        '-c', 'skills.include_instructions=false', '-c', 'skills.bundled.enabled=false',
+        '-c', 'history.persistence="none"',
+        '-c', 'model_instructions_file=' + JSON.stringify(instructionsPath),
+        '-c', 'developer_instructions=' + JSON.stringify(instructions),
         ...DISABLED_FEATURES.flatMap((feature) => ['--disable', feature]), '-',
       ];
       const result = await this.runner({
         executable: executable.path, env: executable.env, args, cwd, signal,
-        timeoutMs: this.askTimeoutMs, maxOutputBytes: 1024 * 1024, input: question,
+        timeoutMs: this.askTimeoutMs, maxOutputBytes: 1024 * 1024, input,
       });
       return parseCodexAnswer(result);
     });

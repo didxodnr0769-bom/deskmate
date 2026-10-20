@@ -24,15 +24,15 @@ const controllerSource = buildSync({
 interface StoredMemo extends Memo { reminder: { dueAt: number; acknowledged: boolean } | null }
 type IpcEvent = { sender: FakeContents; senderFrame: object };
 type Handler = (event: IpcEvent, value?: unknown) => unknown;
-type Surface = 'widget' | 'panel';
+type Surface = 'widget' | 'panel' | 'chat';
 
 class FakeContents extends EventEmitter {
   readonly mainFrame = {};
   readonly messages: { channel: string; value: unknown }[] = [];
   setWindowOpenHandler(_handler: unknown) {}
   isLoadingMainFrame() { return false; }
-  send(channel: string, value: unknown) {
-    this.messages.push({ channel, value: JSON.parse(JSON.stringify(value)) });
+  send(channel: string, value?: unknown) {
+    this.messages.push({ channel, value: value === undefined ? null : JSON.parse(JSON.stringify(value)) });
   }
 }
 
@@ -90,18 +90,28 @@ function harness(directory: string, initialNow: number, agentProvider?: AgentPro
     constructor(value?: string | number) { super(value === undefined ? now : value); }
     static now() { return now; }
   }
+  const shortcuts = new Map<string, () => void>();
+  const menus: { items: { label: string; click: () => void }[]; closePopup(): void; select(label: string): void }[] = [];
+  class FakeMenu {
+    private onClose: (() => void) | null = null;
+    constructor(readonly items: { label: string; click: () => void }[]) {}
+    popup(options: { window: FakeWindow; callback: () => void }) { this.onClose = options.callback; menus.push(this); }
+    closePopup() { const callback = this.onClose; this.onClose = null; callback?.(); }
+    select(label: string) { const item = this.items.find(item => item.label === label); assert.ok(item); item.click(); this.closePopup(); }
+  }
   const electron = {
     app: { getPath: () => directory, quit() {} },
     BrowserWindow: FakeWindow,
+    Menu: { buildFromTemplate: (items: { label: string; click: () => void }[]) => new FakeMenu(items) },
     screen,
-    globalShortcut: { register: () => true, unregister() {}, unregisterAll() {} },
+    globalShortcut: { register: (key: string, callback: () => void) => { shortcuts.set(key, callback); return true; }, isRegistered: (key: string) => shortcuts.has(key), unregister: (key: string) => { shortcuts.delete(key); }, unregisterAll() { shortcuts.clear(); } },
     ipcMain: {
       on: (channel: string, handler: Handler) => events.set(channel, handler),
       handle: (channel: string, handler: Handler) => handlers.set(channel, handler),
     },
   };
   const module = { exports: {} as { DesktopController: new (options?: { agentProvider?: AgentProvider }) => {
-    widget: FakeWindow; panel: FakeWindow; onResume(): void; dispose(): void;
+    widget: FakeWindow; panel: FakeWindow; chat: FakeWindow; onResume(): void; dispose(): void;
   } } };
   runInNewContext(controllerSource, {
     module, exports: module.exports,
@@ -121,12 +131,17 @@ function harness(directory: string, initialNow: number, agentProvider?: AgentPro
     assert.ok(callback, `IPC handle is registered: ${channel}`);
     return callback(source, value) as T;
   };
-  const invoke = <T = CommandResult>(channel: string, value?: unknown, surface: Surface = 'panel'): T =>
+  const invoke = <T = CommandResult>(channel: string, value?: unknown, surface: Surface = (channel === 'agent-check' || ['chat-ask', 'chat-cancel', 'chat-new', 'chat-shortcut'].includes(channel)) ? 'chat' : 'panel'): T =>
     invokeFrom<T>(channel, value, event(surface));
   return {
-    controller, screen, filename, event, invoke, invokeFrom,
+    controller, screen, filename, event, invoke, invokeFrom, shortcuts, menus,
     state: (): CompanionState => JSON.parse(JSON.stringify(invoke<CompanionState>('state', undefined, 'widget'))),
     disk: (): { version: number; memos: StoredMemo[] } => JSON.parse(readFileSync(filename, 'utf8')),
+    sendFrom(channel: string, value: unknown, source: IpcEvent) {
+      const callback = events.get(`companion:${channel}`);
+      assert.ok(callback, `IPC listener is registered: ${channel}`);
+      callback(source, value);
+    },
     send(channel: string, value?: unknown, surface: Surface = 'widget') {
       const callback = events.get(`companion:${channel}`);
       assert.ok(callback, `IPC listener is registered: ${channel}`);
@@ -367,9 +382,9 @@ async function chatFixture(run: (h: Harness, reply: (text: string) => void, sign
   } finally { h.dispose(); rmSync(directory, { recursive: true, force: true }); }
 }
 
-test('trusted panel chat requests publish an answer in both panel state and a dismissible character bubble', async () => {
+test('trusted dedicated chat requests publish an answer in the conversation and a dismissible character bubble', async () => {
   await chatFixture(async (h, reply) => {
-    h.send('panel-open');
+    h.send('chat-open', undefined, 'chat');
     assert.equal(h.invoke('chat-ask', '질문').ok, true);
     assert.equal(h.state().chat.status, 'thinking');
     reply('짧은 답변');
@@ -377,7 +392,7 @@ test('trusted panel chat requests publish an answer in both panel state and a di
     assert.equal(h.state().chat.answer, '짧은 답변');
     assert.equal(h.state().bubble?.kind, 'chat');
     assert.equal(h.state().bubble?.text, '짧은 답변');
-    assert.equal(h.state().panelOpen, true, 'answer presentation keeps the question panel open');
+    assert.equal(h.state().chatOpen, true, 'answer presentation keeps the chat window open');
     assert.equal(close(h, h.state().bubble!.id).ok, true);
     assert.equal(h.state().bubble, null);
     assert.equal(h.state().chat.answer, '짧은 답변', 'closing the bubble preserves the panel answer');
@@ -425,11 +440,11 @@ test('AI bubble waits until pointer interaction settles and temporarily reveals 
     h.send('pointer-begin', { x: 1300, y: 500 });
     h.send('pointer-move', { x: 1400, y: 550 });
     reply('놓기 후 답변'); await chatSettled();
-    assert.equal(h.state().bubble, null);
+    assert.equal(h.state().bubble?.kind, 'chat-loading');
     assert.equal(h.state().motion, 'dragged');
     h.send('pointer-end', { x: 1400, y: 550 });
     h.tick(1500);
-    assert.equal(h.state().bubble, null);
+    assert.equal(h.state().bubble?.kind, 'chat-loading');
     h.tick(1000);
     assert.equal(h.state().bubble?.kind, 'chat');
     close(h, h.state().bubble!.id);
@@ -444,18 +459,21 @@ test('AI bubble waits until pointer interaction settles and temporarily reveals 
   });
 });
 
-test('only the trusted panel main frame may check, ask or cancel an AI request', async () => {
+test('only trusted chat main frames may ask or reset, while widgets may cancel the current request', async () => {
   await chatFixture(async (h, _reply, signals) => {
     const foreign = new FakeContents();
-    for (const channel of ['agent-check', 'chat-ask', 'chat-cancel']) {
+    for (const channel of ['agent-check', 'chat-ask', 'chat-new']) {
       assert.equal(h.invoke(channel, '질문', 'widget').ok, false);
-      assert.equal(h.invokeFrom(channel, '질문', h.event('panel', true)).ok, false);
+      assert.equal(h.invoke(channel, '질문', 'panel').ok, false);
+      assert.equal(h.invokeFrom(channel, '질문', h.event('chat', true)).ok, false);
       assert.equal(h.invokeFrom(channel, '질문', { sender: foreign, senderFrame: foreign.mainFrame }).ok, false);
     }
     assert.equal(h.invoke('chat-ask', {}).ok, false);
     assert.equal(h.invoke('chat-ask', '정상 질문').ok, true);
     assert.equal(signals.length, 1);
-    assert.equal(h.invoke('chat-cancel', h.state().chat.requestId).ok, true);
+    assert.equal(h.invoke('chat-cancel', h.state().chat.requestId, 'panel').ok, false);
+    assert.equal(h.invokeFrom('chat-cancel', h.state().chat.requestId, h.event('widget', true)).ok, false);
+    assert.equal(h.invoke('chat-cancel', h.state().chat.requestId, 'widget').ok, true);
     assert.equal(signals[0].aborted, true);
     assert.equal(h.state().chat.status, 'cancelled');
   });
@@ -477,4 +495,319 @@ test('cancelling and beginning another question drops a pending older answer wit
     assert.equal(h.disk().memos.length, 1);
     assert.equal(h.disk().memos[0].text, '메모 유지');
   }, [item]);
+});
+
+test('loading bubble is immediate and quiet, can be folded without cancelling, and becomes a completed answer', async () => {
+  await chatFixture(async (h, reply, signals) => {
+    h.invoke('chat-ask', '로딩 확인');
+    const loading = h.state().bubble!;
+    assert.equal(loading.kind, 'chat-loading');
+    assert.equal(h.state().motion, 'idle', 'waiting does not repeatedly jump');
+    h.send('preview-notification');
+    assert.equal(h.state().bubble!.id, loading.id);
+    close(h, loading.id);
+    h.tick(2000);
+    assert.equal(h.state().bubble, null, 'folded loading must not reappear on each timer tick');
+    assert.equal(signals[0].aborted, false, 'folding the indicator is different from cancellation');
+    reply('생성 완료'); await chatSettled();
+    assert.equal(h.state().bubble?.kind, 'chat');
+    assert.equal(h.state().bubble?.text, '생성 완료');
+    close(h, loading.id);
+    assert.equal(h.state().bubble?.kind, 'chat', 'stale loading close cannot dismiss the completed answer');
+  });
+});
+
+test('memo alarms suppress loading and restore the latest pending answer rather than stale loading', async () => {
+  await chatFixture(async (h, reply) => {
+    h.invoke('chat-ask', '생성 중');
+    assert.equal(h.state().bubble?.kind, 'chat-loading');
+    h.tick(40_000);
+    const alarm = reminder(h);
+    reply('로딩 대신 답변'); await chatSettled();
+    assert.equal(reminder(h).id, alarm.id);
+    close(h, alarm.id);
+    assert.equal(h.state().bubble?.kind, 'chat');
+    assert.equal(h.state().bubble?.text, '로딩 대신 답변');
+  }, [memo('우선 알림', '10:01', localTime(10, 1))]);
+});
+
+test('closing the dedicated chat window keeps its active request and conversation for reopening', async () => {
+  await chatFixture(async (h, reply, signals) => {
+    h.send('chat-open');
+    assert.equal(h.state().chatOpen, true);
+    assert.equal(h.controller.chat.shown, true);
+    h.invoke('chat-ask', '창 닫기');
+    const conversation = h.state().chat.conversationId;
+    h.send('chat-close', undefined, 'chat');
+    assert.equal(h.state().chatOpen, false);
+    assert.equal(signals[0].aborted, false);
+    reply('닫아도 완료'); await chatSettled();
+    assert.equal(h.state().chat.messages.length, 2);
+    h.send('chat-open');
+    assert.equal(h.state().chat.conversationId, conversation);
+    assert.equal(h.state().chat.answer, '닫아도 완료');
+    assert.ok(h.controller.chat.webContents.messages.some(message => message.channel === 'companion:chat-focus'));
+    assert.equal(h.invoke('memo-add', { text: '거절', reminderTime: null }, 'chat').ok, false, 'chat cannot change work data');
+    assert.equal(h.invoke('work-schedule', { date: '2026-10-20', startTime: '09:00', endTime: '18:00' }, 'chat').ok, false);
+  });
+});
+
+test('new conversation removes loading, pending answers and visible history while preserving memos', async () => {
+  await chatFixture(async (h, reply, signals) => {
+    h.invoke('chat-ask', '첫 질문');
+    assert.equal(h.state().bubble?.kind, 'chat-loading');
+    const old = h.state().chat.conversationId;
+    assert.equal(h.invoke('chat-new').ok, true);
+    assert.equal(signals[0].aborted, true);
+    assert.equal(h.state().bubble, null);
+    reply('초기화 후 늦은 답변'); await chatSettled(); h.tick();
+    assert.deepEqual(h.state().chat.messages, []);
+    assert.notEqual(h.state().chat.conversationId, old);
+    assert.equal(h.state().bubble, null);
+    assert.equal(h.disk().memos.length, 1);
+    h.invoke('chat-ask', '새 질문'); reply('새 답변'); await chatSettled();
+    assert.equal(h.state().bubble?.kind, 'chat');
+    h.invoke('chat-new');
+    assert.equal(h.state().bubble, null);
+    assert.deepEqual(h.state().chat.messages, []);
+  }, [memo('보존 메모', '11:00', localTime(11, 0))]);
+});
+
+test('chat shortcut has an independent callback and cannot replace the visibility shortcut', async () => {
+  await chatFixture(async (h) => {
+    const initial = h.state();
+    assert.equal(initial.chatShortcutRegistered, true);
+    assert.equal(h.invoke('chat-shortcut', initial.shortcut).ok, false);
+    assert.equal(h.state().chatShortcut, initial.chatShortcut);
+    assert.equal(h.invoke('shortcut', initial.chatShortcut).ok, false);
+    h.shortcuts.get(initial.chatShortcut)!();
+    assert.equal(h.state().chatOpen, true);
+    assert.equal(h.invoke('chat-shortcut', 'Command+Alt+J').ok, true);
+    assert.equal(h.shortcuts.has(initial.chatShortcut), false);
+    assert.equal(h.shortcuts.has(initial.shortcut), true);
+    h.shortcuts.get(initial.shortcut)!();
+    assert.equal(h.state().chatOpen, false);
+    assert.equal(h.state().visible, false);
+    h.shortcuts.get('Command+Alt+J')!();
+    assert.equal(h.state().chatOpen, true);
+  });
+});
+
+
+test('a character click opens the existing conversation while a real drag only moves the character', () => {
+  fixture([], h => {
+    h.send('pointer-begin', { x: 1300, y: 500 });
+    h.send('pointer-end', { x: 1302, y: 502 });
+    assert.equal(h.state().chatOpen, true);
+    assert.equal(h.state().panelOpen, false);
+    const conversationId = h.state().chat.conversationId;
+    h.send('chat-close', undefined, 'chat');
+    h.send('pointer-begin', { x: 1300, y: 500 });
+    h.send('pointer-end', { x: 1400, y: 550 });
+    assert.equal(h.state().chatOpen, false);
+    assert.equal(h.state().motion, 'dropping');
+    assert.equal(h.state().chat.conversationId, conversationId);
+  });
+});
+
+test('native context menu is widget-only, pauses movement and targets each requested panel even on repeated selection', () => {
+  fixture([], h => {
+    h.send('context-menu', undefined, 'panel');
+    h.send('context-menu', undefined, 'chat');
+    h.sendFrom('context-menu', undefined, h.event('widget', true));
+    assert.equal(h.menus.length, 0);
+    h.send('context-menu');
+    const menu = h.menus[0];
+    assert.deepEqual(Array.from(menu.items, item => item.label), ['대화하기', '근무시간', '메모']);
+    const origin = h.controller.widget.getBounds();
+    h.tick(3000);
+    assert.deepEqual(h.controller.widget.getBounds(), origin);
+    h.send('context-menu');
+    assert.equal(h.menus.length, 1);
+    h.send('pointer-begin', { x: 1300, y: 500 });
+    h.send('pointer-end', { x: 1300, y: 500 });
+    assert.equal(h.state().chatOpen, false);
+    menu.select('메모');
+    assert.equal(h.state().panelOpen, true);
+    assert.equal(h.state().panelNavigation?.tab, 'memos');
+    const firstSequence = h.state().panelNavigation!.sequence;
+    h.send('context-menu'); h.menus.at(-1)!.select('근무시간');
+    assert.equal(h.state().panelNavigation?.tab, 'work');
+    h.send('context-menu'); h.menus.at(-1)!.select('메모');
+    assert.ok(h.state().panelNavigation!.sequence > firstSequence);
+    h.send('context-menu'); h.menus.at(-1)!.select('대화하기');
+    assert.equal(h.state().chatOpen, true);
+    h.send('panel-close'); h.send('chat-close', undefined, 'chat');
+    h.tick(2500);
+    assert.notDeepEqual(h.controller.widget.getBounds(), origin);
+  });
+});
+
+test('cancelling a menu resumes movement and a due reminder waits until menu dismissal', () => {
+  fixture([memo('선택 이후', '10:01', localTime(10, 1))], h => {
+    h.send('context-menu');
+    const menu = h.menus[0];
+    h.tick(40000);
+    assert.equal(h.state().bubble, null);
+    menu.closePopup();
+    assert.equal(reminder(h).text.includes('선택 이후'), true);
+    assert.equal(h.state().panelOpen, false);
+    assert.equal(h.state().chatOpen, false);
+    close(h, reminder(h).id);
+    const origin = h.controller.widget.getBounds();
+    h.tick(2500);
+    assert.notDeepEqual(h.controller.widget.getBounds(), origin);
+  });
+});
+
+test('memo bubble navigation preserves the alarm and never acknowledges or completes it', () => {
+  fixture([memo('확인 유지', '10:00', localTime(10, 0))], h => {
+    h.tick();
+    const bubble = reminder(h);
+    h.send('bubble-activate', bubble.id, 'panel');
+    h.sendFrom('bubble-activate', bubble.id, h.event('widget', true));
+    h.send('bubble-activate', 'obsolete-id');
+    assert.equal(h.state().panelOpen, false);
+    h.send('bubble-activate', bubble.id);
+    assert.equal(h.state().panelNavigation?.tab, 'memos');
+    assert.equal(reminder(h).id, bubble.id);
+    assert.equal(h.disk().memos[0].reminder!.acknowledged, false);
+    assert.equal(h.disk().memos[0].completed, false);
+    const sequence = h.state().panelNavigation!.sequence;
+    h.send('bubble-activate', bubble.id);
+    assert.equal(h.state().panelNavigation!.sequence, sequence + 1);
+  });
+});
+
+test('AI bubble navigation preserves the active request and history and stale or preview bubbles do nothing', async () => {
+  await chatFixture(async (h, reply) => {
+    h.send('preview-notification');
+    h.send('bubble-activate', h.state().bubble!.id);
+    assert.equal(h.state().chatOpen, false);
+    h.invoke('chat-ask', '기억할 질문');
+    const loading = h.state().bubble!;
+    assert.equal(loading.kind, 'chat-loading');
+    h.send('bubble-activate', loading.id);
+    assert.equal(h.state().chatOpen, true);
+    assert.equal(h.state().chat.status, 'thinking');
+    assert.equal(h.state().chat.messages.length, 1);
+    h.send('chat-close', undefined, 'chat');
+    reply('기억할 답변'); await chatSettled();
+    const answer = h.state().bubble!;
+    assert.equal(answer.kind, 'chat');
+    h.send('bubble-activate', loading.id);
+    assert.equal(h.state().chatOpen, false);
+    h.send('bubble-activate', answer.id);
+    assert.equal(h.state().chatOpen, true);
+    assert.equal(h.state().bubble!.id, answer.id);
+    assert.equal(h.state().chat.messages.length, 2);
+  });
+});
+
+test('only the chat main frame can change the conversation shortcut', () => {
+  fixture([], h => {
+    const before = h.state().chatShortcut;
+    assert.equal(h.invoke('chat-shortcut', 'Command+Alt+K', 'panel').ok, false);
+    assert.equal(h.invoke('chat-shortcut', 'Command+Alt+K', 'widget').ok, false);
+    assert.equal(h.invokeFrom<CommandResult>('chat-shortcut', 'Command+Alt+K', h.event('chat', true)).ok, false);
+    assert.equal(h.state().chatShortcut, before);
+    assert.equal(h.invoke('chat-shortcut', 'Command+Alt+K', 'chat').ok, true);
+    assert.equal(h.state().chatShortcut, 'Command+Alt+K');
+  });
+});
+
+
+test('a reminder becoming due inside a menu cannot hide the selected panel regardless of native callback ordering', () => {
+  for (const callbackFirst of [true, false]) {
+    for (const tab of ['work', 'memos'] as const) {
+      fixture([memo('선택 유지', '10:01', localTime(10, 1))], h => {
+        h.send('context-menu'); const menu = h.menus[0];
+        h.tick(40000); assert.equal(h.state().bubble, null);
+        if (callbackFirst) menu.closePopup();
+        menu.select(tab === 'work' ? '근무시간' : '메모');
+        assert.equal(h.state().panelOpen, true);
+        assert.equal(h.state().panelNavigation?.tab, tab);
+        assert.equal(reminder(h).text.includes('선택 유지'), true);
+        assert.equal(h.disk().memos[0].reminder!.acknowledged, false);
+      });
+    }
+  }
+});
+
+test('AI command planning reaches the real memo service and stores only the verified result in conversation history', async () => {
+  await chatFixture(async (h, reply) => {
+    h.invoke('chat-ask', '30분 뒤 회의 알려줘');
+    reply(JSON.stringify({ kind: 'command', command: { name: 'memo.add', text: 'AI로 추가한 회의', reminder: { kind: 'after', minutes: 30 } } }));
+    await chatSettled();
+    assert.equal(h.disk().memos.length, 1);
+    assert.equal(h.disk().version, 4);
+    assert.equal(h.disk().memos[0].text, 'AI로 추가한 회의');
+    assert.match(h.state().chat.answer!, /메모를 추가했어요/);
+    assert.doesNotMatch(h.state().chat.messages.at(-1)!.text, /"kind"|"command"/);
+    assert.equal(h.invoke('memo-add', { text: '직접 IPC는 거절', reminderTime: null }, 'chat').ok, false);
+    h.invoke('chat-ask', '남은 메모를 보여줘');
+    reply(JSON.stringify({ kind: 'command', command: { name: 'memo.list', completed: false } })); await chatSettled();
+    assert.match(h.state().chat.answer!, /AI로 추가한 회의/);
+  });
+});
+
+test('cancelled or reset AI command replies cannot mutate real memo storage', async () => {
+  await chatFixture(async (h, reply) => {
+    h.invoke('chat-ask', '추가를 취소할 질문');
+    h.invoke('chat-cancel', h.state().chat.requestId);
+    reply(JSON.stringify({ kind: 'command', command: { name: 'memo.add', text: '늦은 명령' } })); await chatSettled();
+    assert.equal(h.disk().memos.length, 0);
+    h.invoke('chat-ask', '새 대화 전에 보낸 질문'); h.invoke('chat-new');
+    reply(JSON.stringify({ kind: 'command', command: { name: 'memo.add', text: '초기화 뒤 명령' } })); await chatSettled();
+    assert.equal(h.disk().memos.length, 0); assert.deepEqual(h.state().chat.messages, []);
+  });
+});
+
+test('briefing persists acknowledgement across restart and opening its memo list does not complete tasks', () => {
+  fixture([memo('퇴근 전 확인', '20:00', localTime(20, 0))], (h, directory) => {
+    h.invoke('work-schedule', { date: '2026-10-20', startTime: '09:00', endTime: '18:00' });
+    assert.equal(h.invoke('briefing-settings', { enabled: true, beforeMinutes: 30 }, 'chat').ok, false);
+    assert.equal(h.invoke('briefing-settings', { enabled: true, beforeMinutes: 30 }).ok, true);
+    h.setNow(localTime(17, 30)); h.tick(1);
+    const bubble = h.state().bubble; assert.equal(bubble?.kind, 'briefing');
+    h.send('bubble-activate', bubble!.id);
+    assert.equal(h.state().panelNavigation?.tab, 'memos');
+    assert.equal(h.state().bubble!.id, bubble!.id);
+    assert.equal(h.disk().memos[0].completed, false);
+    assert.equal(close(h, bubble!.id).ok, true);
+    assert.equal(h.state().bubble, null);
+    const restarted = harness(directory, localTime(17, 45));
+    try { restarted.tick(); assert.equal(restarted.state().bubble, null); assert.equal(restarted.state().briefingSettings.enabled, true); }
+    finally { restarted.dispose(); }
+  });
+});
+
+test('memo alarms precede work briefing and the newest AI answer returns after both are closed', async () => {
+  await chatFixture(async (h, reply) => {
+    h.invoke('work-schedule', { date: '2026-10-20', startTime: '09:00', endTime: '18:00' });
+    h.invoke('briefing-settings', { enabled: true, beforeMinutes: 30 });
+    h.invoke('chat-ask', '대화 유지');
+    h.setNow(localTime(17, 30)); h.tick(1);
+    assert.equal(h.state().bubble?.kind, 'briefing');
+    reply('최신 답변'); await chatSettled();
+    assert.equal(h.state().bubble?.kind, 'briefing');
+    h.tick(60000); assert.equal(h.state().bubble?.kind, 'reminder');
+    close(h, h.state().bubble!.id); assert.equal(h.state().bubble?.kind, 'briefing');
+    close(h, h.state().bubble!.id); assert.equal(h.state().bubble?.kind, 'chat');
+    assert.equal(h.state().bubble?.text, '최신 답변');
+  }, [memo('가장 먼저 처리', '17:31', localTime(17, 31))]);
+});
+
+test('briefing acknowledgement write failure keeps the visible notice and can be retried safely', () => {
+  fixture([memo('안전하게 보존', '20:00', localTime(20, 0))], (h, directory) => {
+    h.invoke('work-schedule', { date: '2026-10-20', startTime: '09:00', endTime: '18:00' });
+    h.invoke('briefing-settings', { enabled: true, beforeMinutes: 30 });
+    h.setNow(localTime(17, 30)); h.tick(1); const bubble = h.state().bubble!;
+    const path = join(directory, 'briefing.json'), backup = path + '.preserved';
+    renameSync(path, backup); mkdirSync(path);
+    assert.equal(close(h, bubble.id).ok, false); assert.equal(h.state().bubble!.id, bubble.id);
+    assert.ok(h.state().briefingError); assert.equal(h.disk().memos[0].completed, false);
+    rmSync(path, { recursive: true }); renameSync(backup, path);
+    assert.equal(close(h, bubble.id).ok, true); assert.equal(h.state().bubble, null);
+  });
 });

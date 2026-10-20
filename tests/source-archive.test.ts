@@ -64,7 +64,7 @@ test('source staging preserves shared AI guides and nested code while excluding 
     'src/config/signing.p12', 'src/config/profile.mobileprovision',
     'src/config/settings.local.json', 'scripts/config.local.toml',
     'src/config/signing.p8', 'src/config/signing.jks', 'src/config/signing.keystore',
-    'src/data/memos.json', 'src/data/memos.v2.backup.json', 'src/data/worktime.json',
+    'src/data/memos.json', 'src/data/memos.v2.backup.json', 'src/data/worktime.json', 'src/data/briefing.json', 'src/data/briefing.json.backup',
     'src/data/worktime.json.tmp', 'src/data/memos-personal.json', 'src/data/worktime.v2.backup.json',
     'src/userData/cache.json', 'src/.local-data/private.json',
     'tests/qa-results/screenshot.png', 'tests/logs/session.json', 'tests/captures/private.png',

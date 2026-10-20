@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { access, chmod, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { CodexProvider, parseCodexAnswer } from '../src/main/ai/codex';
 import { discoverCodex } from '../src/main/ai/discovery';
 import { AgentError } from '../src/main/ai/provider';
+import { APP_COMMAND_INSTRUCTIONS, CHAT_INSTRUCTIONS } from '../src/main/ai/prompt';
+import type { ChatMessage } from '../src/shared/chat';
 import type { ProcessRequest, ProcessResult, ProcessRunner } from '../src/main/ai/process';
 
 const signal = () => new AbortController().signal;
@@ -62,20 +64,38 @@ test('missing CLI and unauthenticated statuses return fixed actionable messages'
   assert.doesNotMatch(state.message, /PRIVATE ACCOUNT/);
 });
 
-test('ask sends prompt only through stdin in an empty temporary directory with restricted options', async () => {
+test('ask sends conversation only through stdin in a temporary directory with app-owned instructions and restricted options', async () => {
   const question = '사용자 질문; $(echo test) --output /tmp/fixture';
   const { provider, requests } = fixture([...verified(), success()], async (request) => {
-    assert.deepEqual(await readdir(request.cwd), []);
+    if (request.args.includes('--json')) {
+      assert.deepEqual(await readdir(request.cwd), ['conversation-instructions.md']);
+      const setting = request.args.find((arg) => arg.startsWith('model_instructions_file='));
+      assert.ok(setting);
+      const path = JSON.parse(setting.slice('model_instructions_file='.length)) as string;
+      assert.equal(path, join(request.cwd, 'conversation-instructions.md'));
+      assert.equal(await readFile(path, 'utf8'), CHAT_INSTRUCTIONS);
+      assert.equal((await stat(path)).mode & 0o777, 0o600);
+      assert.ok(!(await readFile(path, 'utf8')).includes(question));
+      assert.doesNotMatch(await readFile(path, 'utf8'), /PRIVATE RUNTIME FIXTURE/);
+    } else assert.deepEqual(await readdir(request.cwd), []);
   });
-  assert.equal(await provider.ask({ question, signal: signal() }), '안녕하세요');
+  const history = [{ id: 'PRIVATE RUNTIME FIXTURE', requestId: 'request', role: 'user', text: '처음 질문', status: 'complete', createdAt: 1, diagnostics: 'PRIVATE RUNTIME FIXTURE' }] satisfies (ChatMessage & { diagnostics: string })[];
+  assert.equal(await provider.ask({ question, history, signal: signal() }), '안녕하세요');
   const request = requests[3];
-  assert.equal(request.input, question);
+  assert.deepEqual(JSON.parse(request.input ?? ''), {
+    conversation_history: [{ role: 'user', status: 'complete', text: '처음 질문' }], current_question: question,
+  });
+  assert.doesNotMatch(request.input ?? '', /PRIVATE RUNTIME FIXTURE|requestId|createdAt|diagnostics/);
   assert.ok(request.args.includes('--ephemeral'));
   assert.ok(request.args.includes('--ignore-user-config'));
   assert.equal(request.args[request.args.indexOf('--sandbox') + 1], 'read-only');
   assert.equal(request.args[request.args.indexOf('-a') + 1], 'never');
   assert.ok(request.args.includes('web_search="disabled"'));
   assert.ok(request.args.includes('project_doc_max_bytes=0'));
+  assert.ok(request.args.includes('skills.include_instructions=false'));
+  assert.ok(request.args.includes('skills.bundled.enabled=false'));
+  assert.ok(request.args.includes('history.persistence="none"'));
+  assert.ok(request.args.includes('developer_instructions=' + JSON.stringify(CHAT_INSTRUCTIONS)));
   for (const feature of ['shell_tool', 'unified_exec', 'apps', 'plugins', 'hooks', 'memories', 'computer_use', 'multi_agent']) {
     const at = request.args.indexOf(feature);
     assert.equal(request.args[at - 1], '--disable');
@@ -84,6 +104,18 @@ test('ask sends prompt only through stdin in an empty temporary directory with r
   assert.ok(request.args.every((value) => !value.includes(question)));
   assert.equal(request.timeoutMs, 120000);
   await assert.rejects(access(request.cwd));
+  await assert.rejects(access(join(request.cwd, 'conversation-instructions.md')));
+});
+
+test('invalid or oversized history never discovers or starts CLI', async () => {
+  let discoveries = 0;
+  const provider = new CodexProvider({ discover: async () => { discoveries++; throw new Error('must not discover'); } });
+  const message: ChatMessage = { id: 'id', requestId: 'request', role: 'user', text: 'a'.repeat(200000), status: 'complete', createdAt: 1 };
+  for (const history of [[message], [{ ...message, role: 'system' }], null]) {
+    await assert.rejects(provider.ask({ question: '질문', history: history as unknown as ChatMessage[], signal: signal() }),
+      (error: unknown) => error instanceof AgentError && error.code === 'failed');
+  }
+  assert.equal(discoveries, 0);
 });
 
 test('empty/oversized questions and pre-aborted requests never discover or start CLI', async () => {
@@ -176,4 +208,35 @@ test('discovery uses explicit absolute override or PATH precedence and supplies 
     await chmod(executable, 0o644);
     await assert.rejects(discoverCodex({ DESKMATE_CODEX_PATH: executable }, home));
   } finally { await rm(home, { recursive: true, force: true }); }
+});
+
+
+test('app command mode uses the planning instructions and local clock metadata while retaining the restricted CLI boundary', async () => {
+  const plan = JSON.stringify({ kind: 'command', command: { name: 'memo.add', text: '장보기', reminder: { kind: 'after', minutes: 30 } } });
+  const { provider, requests } = fixture([...verified(), success(plan)], async request => {
+    if (!request.args.includes('--json')) return;
+    const setting = request.args.find(arg => arg.startsWith('model_instructions_file='));
+    assert.ok(setting);
+    const path = JSON.parse(setting.slice('model_instructions_file='.length)) as string;
+    assert.equal(await readFile(path, 'utf8'), APP_COMMAND_INSTRUCTIONS);
+    assert.deepEqual(await readdir(request.cwd), ['conversation-instructions.md']);
+  });
+  assert.equal(await provider.ask({ question: '30분 뒤 장보기 알려 줘', appCommands: true, signal: signal() }), plan);
+  const request = requests[3];
+  assert.ok(request.args.includes('developer_instructions=' + JSON.stringify(APP_COMMAND_INSTRUCTIONS)));
+  const input = JSON.parse(request.input ?? '');
+  assert.equal(input.current_question, '30분 뒤 장보기 알려 줘');
+  assert.deepEqual(input.conversation_history, []);
+  assert.deepEqual(Object.keys(input.app_context).sort(), ['local_date', 'local_time', 'weekday']);
+  assert.match(input.app_context.local_date, /^\d{4}-\d{2}-\d{2}$/);
+  assert.match(input.app_context.local_time, /^\d{2}:\d{2}$/);
+  assert.equal(Number.isInteger(input.app_context.weekday), true);
+  assert.ok(input.app_context.weekday >= 0 && input.app_context.weekday <= 6);
+  assert.ok(request.args.includes('--ignore-user-config'));
+  assert.ok(request.args.includes('project_doc_max_bytes=0'));
+  assert.ok(request.args.includes('skills.include_instructions=false'));
+  assert.equal(request.args[request.args.indexOf('--sandbox') + 1], 'read-only');
+  assert.equal(request.args.at(-1), '-');
+  assert.ok(request.args.every(value => !value.includes('30분 뒤 장보기 알려 줘')));
+  await assert.rejects(access(request.cwd));
 });
