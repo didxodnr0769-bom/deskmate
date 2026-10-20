@@ -1,3 +1,4 @@
+import type { ChatState } from './chat';
 export type Motion = 'idle' | 'walking' | 'dragged' | 'dropping' | 'notify';
 export interface Point { x: number; y: number }
 export interface Rect extends Point { width: number; height: number }
@@ -19,8 +20,10 @@ export interface Memo extends MemoDraft {
   updatedAt: number;
 }
 export type NotificationBubble = { id: string; text: string; kind: 'preview' }
-  | { id: string; text: string; kind: 'reminder'; memoId: string; dueAt: number };
+  | { id: string; text: string; kind: 'reminder'; memoId: string; dueAt: number }
+  | { id: string; text: string; kind: 'chat'; requestId: string };
 export interface CompanionState {
+  chat: ChatState;
   motion: Motion;
   direction: 1 | -1;
   hp: number;
@@ -43,6 +46,9 @@ export interface CompanionState {
 }
 export interface CompanionApi {
   getState(): Promise<CompanionState>;
+  checkAgentConnection(): Promise<CommandResult>;
+  askQuestion(question: string): Promise<CommandResult>;
+  cancelQuestion(requestId: string): Promise<CommandResult>;
   onState(listener: (state: CompanionState) => void): () => void;
   setHitRegions(regions: HitRegion[]): void;
   beginPointer(point: Point): void;

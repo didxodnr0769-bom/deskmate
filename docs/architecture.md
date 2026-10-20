@@ -10,13 +10,14 @@ Electron main
   ├─ 캐릭터 이동·드래그·표시 상태
   ├─ 근무시간 계산·저장
   ├─ 메모 검증·변경·저장, 일회성 알림 예약·확인 상태
+  ├─ 단일 질문·답변 상태와 Provider 실행·취소
   └─ 허용된 IPC 처리
        ↕
 preload: window.companion
        ↕
 renderer
   ├─ Canvas 2D 캐릭터·HP·말풍선
-  └─ React 조작 패널
+  └─ React 근무·메모·대화 패널
 ```
 
 `src/shared/contracts.ts`가 main과 renderer 사이의 상태·명령 형식을 정의합니다. `src/preload/index.ts`는 그중 앱에 필요한 기능만 `window.companion`으로 노출합니다. renderer가 Node.js나 Electron API를 직접 호출하지 않는 경계를 유지합니다.
@@ -32,6 +33,12 @@ renderer
 | `src/main/domain/worktime-store.ts` | 저장 형식 검증과 근무시간 파일 읽기·원자적 저장 |
 | `src/main/features/memos.ts` | `MemoService`: 메모 입력 검증, 추가·수정·완료·삭제, 저장 파일 검증·교체 |
 | `src/main/domain/reminders.ts` | 시간 입력을 다음 로컬 시각의 일회성 예약으로 계산 |
+| `src/main/features/chat.ts` | 질문 검증, 연결 상태, 단일 요청·취소·늦은 응답 차단 |
+| `src/main/ai/provider.ts` | Provider 공통 연결·질문 계약과 오류 |
+| `src/main/ai/codex.ts` | Codex CLI 검사, 제한된 실행 옵션, JSONL 답변 변환 |
+| `src/main/ai/process.ts`, `discovery.ts` | 실행 파일 탐색, stdin·출력 제한·시간 제한·프로세스 그룹 종료 |
+| `src/shared/chat.ts` | Provider와 무관한 대화 상태·입력 제한 |
+| `src/renderer/ChatPanel.tsx` | 연결 확인, 질문 입력·취소, 현재 질문·답변 표시 |
 | `src/preload/index.ts` | renderer와 main 사이의 제한된 브리지 |
 | `src/shared/contracts.ts` | 상태와 명령, 캐릭터 동작 상태, 기본 창 크기와 단축키 |
 | `src/renderer/characters/rock.ts` | 기본 캐릭터의 외형과 상태별 포즈 |
@@ -63,7 +70,7 @@ main이 받는 클릭 영역은 `rect` 또는 `polygon` 형식입니다. 캐릭�
 - 알림 점프와 말풍선 미리보기
 - 메모 시각의 일회성 무음 알림, 숨김 상태 임시 표시·복귀, 미확인 알림 복구와 확인한 알림의 중복 방지
 
-미리보기와 실제 메모 알림을 구분합니다. AI Agent 실행과 반복 알림은 구현하지 않았습니다.
+미리보기와 실제 메모 알림을 구분합니다. Codex CLI의 단일 질문·답변 연결을 제공합니다. 반복 알림과 대화로 앱 데이터를 조작하는 기능은 구현하지 않았습니다.
 
 ## 근무시간 계산과 저장
 
@@ -114,8 +121,12 @@ main이 받는 클릭 영역은 `rect` 또는 `polygon` 형식입니다. 캐릭�
 
 근무시간·메모·예약 계산과 저장은 캐릭터 렌더러나 AI 응답과 분리돼 있습니다. 캐릭터 교체는 업무 데이터나 예약 상태에 영향을 주지 않습니다.
 
-## 후속 설계: AI 연결
+## AI 질문·답변
 
-Codex CLI부터 연결하되, 공통 질문·응답 계약과 Agent별 실행 구현을 분리할 예정입니다. 첫 범위는 질문·답변이고, 메모 추가나 퇴근시간 변경은 후속 확장입니다.
+`ChatService`는 Provider 공통 계약을 사용하며, 기본 구현은 `CodexProvider`입니다. 실행 파일·CLI 인자·JSONL 출력은 Codex 어댑터에만 있습니다. 다른 Provider는 `DesktopController`의 `agentProvider` 옵션으로 주입할 수 있으며 사용자용 선택 UI는 아직 없습니다.
 
-현재는 provider 인터페이스나 CLI 실행 코드가 없습니다. 확장 시 고려할 경계는 [AI Agent 연결 계획](agent-provider-guide.md)에 정리했습니다.
+신뢰된 panel main frame만 연결 검사·질문·취소 IPC를 호출합니다. 연결 검사나 질문은 한 번에 하나만 실행합니다. 취소는 요청 ID를 확인하고, 취소·종료 이후 늦게 끝난 응답은 상태나 말풍선을 변경하지 못합니다. 질문·답변은 마지막 한 쌍만 메모리에 유지하며 메모·근무시간 저장과 분리합니다.
+
+답변이 도착하면 패널을 유지하면서 캐릭터 말풍선에도 표시합니다. 예약 알림이 우선이며, 알림을 닫은 뒤 대기한 답변을 표시합니다. 드래그·놓기 중에는 답변 말풍선 표시를 미루고, 새 질문은 이전 답변 말풍선과 대기 답변을 제거합니다. 말풍선 닫기는 질문·답변을 지우지 않습니다.
+
+구체적인 실행·인증·오류 처리와 남은 확장은 [AI 연결 안내](agent-provider-guide.md)를 참고하세요.

@@ -6,6 +6,10 @@ import { advanceRoam, clampBounds, hitTest, nativePosition, panelBounds, sanitiz
 import { getWorkProgress, validateWorkSchedule } from '../domain/worktime';
 import { loadWorkSchedule, saveWorkSchedule } from '../domain/worktime-store';
 import { MemoService } from '../features/memos';
+import { ChatService } from '../features/chat';
+import { CodexProvider } from '../ai/codex';
+import type { AgentProvider } from '../ai/provider';
+import type { ChatState } from '../../shared/chat';
 
 type Gesture = { start: Point; origin: Rect; dragging: boolean };
 const isPoint = (v: unknown): v is Point => !!v && typeof v === 'object' &&
@@ -31,8 +35,11 @@ export class DesktopController {
   private timer: ReturnType<typeof setInterval>;
   private state: CompanionState;
   private disposed = false;
+  private readonly chatService: ChatService;
+  private pendingChatBubble: Extract<NotificationBubble, { kind: 'chat' }> | null = null;
 
-  constructor() {
+  constructor(options: { agentProvider?: AgentProvider } = {}) {
+    this.chatService = new ChatService(options.agentProvider ?? new CodexProvider(), next => this.onChatChange(next));
     const display = screen.getPrimaryDisplay();
     let workSchedule = null;
     let storageError: string | null = null;
@@ -43,7 +50,7 @@ export class DesktopController {
     try { this.memoService = new MemoService(join(app.getPath('userData'), 'memos.json')); }
     catch (error) { memoError = (error as Error).message; }
     this.state = {
-      motion: 'idle', direction: 1, hp: workProgress.hp, workSchedule, workProgress, walking: true, visible: true,
+      chat: this.chatService.state, motion: 'idle', direction: 1, hp: workProgress.hp, workSchedule, workProgress, walking: true, visible: true,
       memos: this.memoService?.list() ?? [], memoError, reminderError: null,
       userHidden: false, panelOpen: false, motionStartedAt: Date.now(), bubble: null,
       displayId: display.id, displays: [], shortcut: DEFAULT_SHORTCUT,
@@ -98,6 +105,12 @@ export class DesktopController {
       ipcMain.on(`companion:${name}`, (event, value) => { if (this.trusted(event, only)) handler(value); });
     };
     ipcMain.handle('companion:state', event => this.trusted(event) ? this.state : null);
+    ipcMain.handle('companion:agent-check', event => this.trusted(event, 'panel')
+      ? this.chatService.checkConnection() : { ok: false, error: '허용되지 않은 요청입니다.' });
+    ipcMain.handle('companion:chat-ask', (event, question: unknown) => this.trusted(event, 'panel')
+      ? this.chatService.ask(question) : { ok: false, error: '허용되지 않은 요청입니다.' });
+    ipcMain.handle('companion:chat-cancel', (event, requestId: unknown) => this.trusted(event, 'panel')
+      ? this.chatService.cancel(requestId) : { ok: false, error: '허용되지 않은 요청입니다.' });
     ipcMain.handle('companion:shortcut', (event, value) => this.trusted(event, 'panel') ? this.registerShortcut(value) : { ok: false, error: '허용되지 않은 요청입니다.' });
     ipcMain.handle('companion:work-schedule', (event, value: unknown) => {
       if (!this.trusted(event, 'panel')) return { ok: false, error: '허용되지 않은 요청입니다.' };
@@ -211,13 +224,13 @@ export class DesktopController {
 
   previewNotification() {
     // A manual preview must never replace an unacknowledged memo alarm.
-    if (this.state.bubble?.kind === 'reminder') return;
+    if (this.state.bubble?.kind === 'reminder' || this.state.bubble?.kind === 'chat') return;
     this.showBubble({ id: randomUUID(), kind: 'preview', text: '알림 미리보기예요. 소리 없이 이렇게 알려드릴게요.' });
   }
 
   private showBubble(bubble: NotificationBubble) {
     this.cancelPointer();
-    this.closePanel();
+    if (bubble.kind !== 'chat') this.closePanel();
     this.state.bubble = bubble;
     this.temporaryAlert = this.state.userHidden;
     this.syncVisibility();
@@ -253,7 +266,7 @@ export class DesktopController {
 
   private refreshReminders(now = Date.now()) {
     this.lastReminderRefresh = now;
-    if (!this.memoService) return;
+    if (!this.memoService) { this.presentPendingChat(); return; }
     try {
       const due = this.memoService.getDueReminders(now);
       // Keep an active alarm in place while edits update its text, even if an
@@ -271,16 +284,46 @@ export class DesktopController {
       if (this.state.reminderError) { this.state.reminderError = null; this.publish(); }
       if (due[0] && !this.gesture && this.releaseAt === null) {
         const next = due[0];
+        if (this.state.bubble?.kind === 'chat') this.pendingChatBubble = this.state.bubble;
         this.showBubble({ id: randomUUID(), kind: 'reminder', memoId: next.memoId, dueAt: next.dueAt, text: `${next.time} · ${next.text}` });
       } else if (active?.kind === 'reminder') {
         this.temporaryAlert = false;
         this.setMotion(this.restingMotion());
         this.syncVisibility();
       }
+      this.presentPendingChat();
     } catch {
       const error = '알림 예약을 저장하지 못했어요. 메모 파일을 확인해 주세요.';
       if (this.state.reminderError !== error) { this.state.reminderError = error; this.publish(); }
     }
+  }
+
+  private onChatChange(next: ChatState) {
+    const previous = this.state.chat;
+    this.state.chat = next;
+    if (next.status === 'thinking' && next.requestId !== previous.requestId) {
+      this.pendingChatBubble = null;
+      if (this.state.bubble?.kind === 'chat') {
+        this.state.bubble = null;
+        this.temporaryAlert = false;
+        this.setMotion(this.restingMotion());
+        this.syncVisibility();
+      }
+    }
+    if (next.status === 'answered' && next.requestId && next.answer
+        && (previous.status !== 'answered' || previous.requestId !== next.requestId)) {
+      this.pendingChatBubble = { id: randomUUID(), kind: 'chat', requestId: next.requestId, text: next.answer };
+      // Deliver an already-due memo before presenting the answer.
+      this.refreshReminders();
+    }
+    this.publish();
+  }
+
+  private presentPendingChat() {
+    if (!this.pendingChatBubble || this.state.bubble?.kind === 'reminder' || this.gesture || this.releaseAt !== null) return;
+    const bubble = this.pendingChatBubble;
+    this.pendingChatBubble = null;
+    this.showBubble(bubble);
   }
 
   private beginPointer(point: Point) {
@@ -397,6 +440,8 @@ export class DesktopController {
   onResume() { this.lastTick = Date.now(); this.refreshWorkProgress(); this.handleDisplays(); this.refreshReminders(); }
   dispose() {
     this.disposed = true;
+    this.chatService.dispose();
+    this.pendingChatBubble = null;
     clearInterval(this.timer);
     globalShortcut.unregisterAll();
     screen.removeListener('display-added', this.handleDisplays);

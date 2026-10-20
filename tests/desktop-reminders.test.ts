@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { buildSync } from 'esbuild';
 import type { CommandResult, CompanionState, Memo, Rect } from '../src/shared/contracts';
+import type { AgentProvider } from '../src/main/ai/provider';
 
 const project = dirname(dirname(fileURLToPath(import.meta.url)));
 const require = createRequire(import.meta.url);
@@ -72,7 +73,7 @@ function memo(text: string, reminderTime: string, dueAt: number): StoredMemo {
     reminder: { dueAt, acknowledged: false } };
 }
 
-function harness(directory: string, initialNow: number) {
+function harness(directory: string, initialNow: number, agentProvider?: AgentProvider) {
   let now = initialNow;
   const intervals = new Set<() => void>();
   const events = new Map<string, Handler>();
@@ -99,17 +100,17 @@ function harness(directory: string, initialNow: number) {
       handle: (channel: string, handler: Handler) => handlers.set(channel, handler),
     },
   };
-  const module = { exports: {} as { DesktopController: new () => {
+  const module = { exports: {} as { DesktopController: new (options?: { agentProvider?: AgentProvider }) => {
     widget: FakeWindow; panel: FakeWindow; onResume(): void; dispose(): void;
   } } };
   runInNewContext(controllerSource, {
     module, exports: module.exports,
     require: (name: string) => name === 'electron' ? electron : require(name),
-    __dirname: join(project, 'src/main/desktop'), Date: ClockDate, Buffer, console,
+    __dirname: join(project, 'src/main/desktop'), Date: ClockDate, Buffer, console, process, AbortController, setTimeout, clearTimeout,
     setInterval: (callback: () => void) => { intervals.add(callback); return callback; },
     clearInterval: (callback: () => void) => intervals.delete(callback),
   });
-  const controller = new module.exports.DesktopController();
+  const controller = new module.exports.DesktopController({ agentProvider });
   const filename = join(directory, 'memos.json');
   const event = (surface: Surface, subframe = false): IpcEvent => {
     const sender = controller[surface].webContents;
@@ -346,4 +347,134 @@ test('only the trusted widget main frame can acknowledge the current bubble thro
     assert.equal(h.state().bubble, null);
     assert.equal(h.disk().memos[0].reminder!.acknowledged, true);
   });
+});
+
+
+const chatSettled = () => new Promise<void>(resolve => setImmediate(resolve));
+async function chatFixture(run: (h: Harness, reply: (text: string) => void, signals: AbortSignal[]) => Promise<void>, memos: StoredMemo[] = []) {
+  const directory = mkdtempSync(join(tmpdir(), 'companion-desktop-chat-'));
+  writeFileSync(join(directory, 'memos.json'), JSON.stringify({ version: 3, memos }));
+  let reply!: (text: string) => void;
+  const signals: AbortSignal[] = [];
+  const provider: AgentProvider = { id: 'fixture', label: '테스트 AI',
+    checkConnection: async () => ({ status: 'ready', message: '연결됨' }),
+    ask: ({ signal }) => { signals.push(signal); return new Promise<string>(resolve => { reply = resolve; }); },
+  };
+  const h = harness(directory, localTime(10, 0, 20), provider);
+  try {
+    assert.equal((await h.invoke<Promise<CommandResult>>('agent-check')).ok, true);
+    await run(h, text => reply(text), signals);
+  } finally { h.dispose(); rmSync(directory, { recursive: true, force: true }); }
+}
+
+test('trusted panel chat requests publish an answer in both panel state and a dismissible character bubble', async () => {
+  await chatFixture(async (h, reply) => {
+    h.send('panel-open');
+    assert.equal(h.invoke('chat-ask', '질문').ok, true);
+    assert.equal(h.state().chat.status, 'thinking');
+    reply('짧은 답변');
+    await chatSettled();
+    assert.equal(h.state().chat.answer, '짧은 답변');
+    assert.equal(h.state().bubble?.kind, 'chat');
+    assert.equal(h.state().bubble?.text, '짧은 답변');
+    assert.equal(h.state().panelOpen, true, 'answer presentation keeps the question panel open');
+    assert.equal(close(h, h.state().bubble!.id).ok, true);
+    assert.equal(h.state().bubble, null);
+    assert.equal(h.state().chat.answer, '짧은 답변', 'closing the bubble preserves the panel answer');
+  });
+});
+
+test('an unacknowledged memo keeps priority while a completed AI answer waits', async () => {
+  const item = memo('먼저 확인할 메모', '09:59', localTime(9, 59));
+  await chatFixture(async (h, reply) => {
+    h.tick();
+    const active = reminder(h);
+    h.invoke('chat-ask', '질문');
+    reply('기다리는 AI 답변');
+    await chatSettled();
+    assert.equal(reminder(h).id, active.id);
+    assert.equal(h.state().chat.answer, '기다리는 AI 답변');
+    assert.equal(h.disk().memos[0].reminder!.acknowledged, false);
+    close(h, active.id);
+    assert.equal(h.disk().memos[0].reminder!.acknowledged, true);
+    assert.equal(h.state().bubble?.kind, 'chat');
+    assert.equal(h.state().bubble?.text, '기다리는 AI 답변');
+  }, [item]);
+});
+
+test('a newly due memo interrupts the AI bubble and the answer returns after acknowledgement', async () => {
+  const item = memo('곧 알림', '10:01', localTime(10, 1));
+  await chatFixture(async (h, reply) => {
+    h.invoke('chat-ask', '질문'); reply('다시 보여줄 답변'); await chatSettled();
+    const chatId = h.state().bubble!.id;
+    h.send('preview-notification');
+    assert.equal(h.state().bubble!.id, chatId, 'preview cannot replace a real answer');
+    h.tick(40_000);
+    const active = reminder(h);
+    close(h, chatId);
+    assert.equal(reminder(h).id, active.id, 'stale answer close cannot acknowledge a memo');
+    close(h, active.id);
+    assert.equal(h.state().bubble?.kind, 'chat');
+    assert.equal(h.state().bubble?.text, '다시 보여줄 답변');
+  }, [item]);
+});
+
+test('AI bubble waits until pointer interaction settles and temporarily reveals a hidden character', async () => {
+  await chatFixture(async (h, reply) => {
+    h.invoke('chat-ask', '질문');
+    h.send('pointer-begin', { x: 1300, y: 500 });
+    h.send('pointer-move', { x: 1400, y: 550 });
+    reply('놓기 후 답변'); await chatSettled();
+    assert.equal(h.state().bubble, null);
+    assert.equal(h.state().motion, 'dragged');
+    h.send('pointer-end', { x: 1400, y: 550 });
+    h.tick(1500);
+    assert.equal(h.state().bubble, null);
+    h.tick(1000);
+    assert.equal(h.state().bubble?.kind, 'chat');
+    close(h, h.state().bubble!.id);
+    h.invoke('chat-ask', '다음 질문');
+    h.send('visibility');
+    assert.equal(h.state().visible, false);
+    reply('숨김 중 답변'); await chatSettled();
+    assert.equal(h.state().userHidden, true);
+    assert.equal(h.state().visible, true);
+    close(h, h.state().bubble!.id);
+    assert.equal(h.state().visible, false);
+  });
+});
+
+test('only the trusted panel main frame may check, ask or cancel an AI request', async () => {
+  await chatFixture(async (h, _reply, signals) => {
+    const foreign = new FakeContents();
+    for (const channel of ['agent-check', 'chat-ask', 'chat-cancel']) {
+      assert.equal(h.invoke(channel, '질문', 'widget').ok, false);
+      assert.equal(h.invokeFrom(channel, '질문', h.event('panel', true)).ok, false);
+      assert.equal(h.invokeFrom(channel, '질문', { sender: foreign, senderFrame: foreign.mainFrame }).ok, false);
+    }
+    assert.equal(h.invoke('chat-ask', {}).ok, false);
+    assert.equal(h.invoke('chat-ask', '정상 질문').ok, true);
+    assert.equal(signals.length, 1);
+    assert.equal(h.invoke('chat-cancel', h.state().chat.requestId).ok, true);
+    assert.equal(signals[0].aborted, true);
+    assert.equal(h.state().chat.status, 'cancelled');
+  });
+});
+
+test('cancelling and beginning another question drops a pending older answer without touching memo state', async () => {
+  const item = memo('메모 유지', '09:59', localTime(9, 59));
+  await chatFixture(async (h, reply) => {
+    h.tick();
+    const alarm = reminder(h);
+    h.invoke('chat-ask', '첫 질문'); reply('대기 중 이전 답변'); await chatSettled();
+    h.invoke('chat-ask', '다음 질문');
+    const requestId = h.state().chat.requestId!;
+    assert.equal(h.invoke('chat-cancel', requestId).ok, true);
+    reply('취소 뒤 늦은 답변'); await chatSettled();
+    assert.equal(h.state().chat.status, 'cancelled');
+    close(h, alarm.id);
+    assert.equal(h.state().bubble, null, 'neither old pending nor cancelled replies appear');
+    assert.equal(h.disk().memos.length, 1);
+    assert.equal(h.disk().memos[0].text, '메모 유지');
+  }, [item]);
 });

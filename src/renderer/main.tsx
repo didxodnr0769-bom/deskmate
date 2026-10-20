@@ -4,6 +4,7 @@ import type { CompanionApi, CompanionState, HitRegion } from '../shared/contract
 import { renderCharacterScene, SCENE_SIZE } from './character-runtime';
 import { rock } from './characters/rock';
 import { MemoPanel } from './MemoPanel';
+import { ChatPanel } from './ChatPanel';
 import './styles.css';
 
 const api = window.companion;
@@ -184,7 +185,7 @@ function Widget({ state }: { state: CompanionState }) {
     data-testid="companion-widget"
     aria-label={`${rock.label} 데스크톱 동료`}
     tabIndex={0}
-    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); api.openPanel(); } }}
+    onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); api.openPanel(); } }}
     onPointerDown={(event) => {
       if (event.button !== 0) return;
       // A fresh press also recovers from an OS-level release that never reached us.
@@ -197,10 +198,10 @@ function Widget({ state }: { state: CompanionState }) {
   >
     <canvas className="character-canvas" ref={canvasRef} aria-hidden="true" data-testid="character-canvas" />
     <span className="sr-only" role="progressbar" aria-label="퇴근 HP" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.floor(state.hp)} />
-    {state.bubble && <div className="notification-bubble" ref={bubbleRef} role="status" data-testid="notification-bubble"
+    {state.bubble && <div className={`notification-bubble${state.bubble.kind === 'chat' ? ' chat-answer-bubble' : ''}`} ref={bubbleRef} role="status" data-testid="notification-bubble"
       onPointerDown={(event) => event.stopPropagation()} onPointerUp={(event) => event.stopPropagation()}>
-      <div className="bubble-heading"><span className="bubble-dot" /><span>{state.bubble.kind === 'reminder' ? '메모 알림' : '알림 미리보기'}</span><button type="button" className="bubble-close" aria-label="알림 닫기" data-testid="dismiss-notification" disabled={dismissing} onClick={dismiss}><CloseIcon /></button></div>
-      <p>{(dismissError || state.reminderError) && <><span className="inline-error" role="alert" data-testid="reminder-error">{dismissError || state.reminderError}</span><br /></>}{state.bubble.text}</p>
+      <div className="bubble-heading"><span className="bubble-dot" /><span>{state.bubble.kind === 'reminder' ? '메모 알림' : state.bubble.kind === 'chat' ? 'AI 답변' : '알림 미리보기'}</span><button type="button" className="bubble-close" aria-label={state.bubble.kind === 'chat' ? 'AI 답변 닫기' : '알림 닫기'} data-testid="dismiss-notification" disabled={dismissing} onClick={dismiss}><CloseIcon /></button></div>
+      <p tabIndex={state.bubble.kind === 'chat' ? 0 : undefined}>{(dismissError || (state.bubble.kind === 'reminder' && state.reminderError)) && <><span className="inline-error" role="alert" data-testid={state.bubble.kind === 'reminder' ? 'reminder-error' : 'bubble-error'}>{dismissError || state.reminderError}</span><br /></>}{state.bubble.text}</p>
     </div>}
   </main>;
 }
@@ -258,7 +259,7 @@ function remainingTime(minutes: number | null): string {
 }
 
 function Panel({ state, companion }: { state: CompanionState; companion: CompanionApi }) {
-  const [tab, setTab] = useState<'work' | 'memos'>('work');
+  const [tab, setTab] = useState<'work' | 'memos' | 'chat'>('work');
   const [date, setDate] = useState(() => state.workSchedule?.date || localDate());
   const [startTime, setStartTime] = useState(() => state.workSchedule?.startTime || '');
   const [endTime, setEndTime] = useState(() => state.workSchedule?.endTime || '');
@@ -345,12 +346,15 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
     <div className="panel-tabs" role="tablist" aria-label="관리 항목" onKeyDown={(event) => {
       if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
       event.preventDefault();
-      const next = event.key === 'Home' ? 'work' : event.key === 'End' ? 'memos' : tab === 'work' ? 'memos' : 'work';
+      const tabs = ['work', 'memos', 'chat'] as const;
+      const index = tabs.indexOf(tab);
+      const next = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[tabs.length - 1] : tabs[(index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
       setTab(next);
       document.getElementById(`${next}-tab`)?.focus();
     }}>
       <button type="button" role="tab" id="work-tab" aria-controls="work-tabpanel" aria-selected={tab === 'work'} tabIndex={tab === 'work' ? 0 : -1} data-testid="work-tab" onClick={() => setTab('work')}>근무</button>
       <button type="button" role="tab" id="memos-tab" aria-controls="memos-tabpanel" aria-selected={tab === 'memos'} tabIndex={tab === 'memos' ? 0 : -1} data-testid="memos-tab" onClick={() => setTab('memos')}>메모</button>
+      <button type="button" role="tab" id="chat-tab" aria-controls="chat-tabpanel" aria-selected={tab === 'chat'} tabIndex={tab === 'chat' ? 0 : -1} data-testid="chat-tab" onClick={() => setTab('chat')}>대화</button>
     </div>
     <div className="panel-content">
       <div role="tabpanel" id="work-tabpanel" aria-labelledby="work-tab" hidden={tab !== 'work'}>
@@ -389,6 +393,9 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
       </div>
       <div role="tabpanel" id="memos-tabpanel" aria-labelledby="memos-tab" hidden={tab !== 'memos'}>
         <MemoPanel memos={state.memos} memoError={state.memoError} reminderError={state.reminderError} companion={companion} />
+      </div>
+      <div role="tabpanel" id="chat-tabpanel" aria-labelledby="chat-tab" hidden={tab !== 'chat'}>
+        <ChatPanel chat={state.chat} companion={companion} active={tab === 'chat'} />
       </div>
     </div>
     <footer className="panel-footer">

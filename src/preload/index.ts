@@ -3,6 +3,9 @@ import type { CompanionApi, CompanionState } from '../shared/contracts';
 const send = (channel: string, value?: unknown) => ipcRenderer.send(channel, value);
 const api: CompanionApi = {
   getState: () => ipcRenderer.invoke('companion:state'),
+  checkAgentConnection: () => ipcRenderer.invoke('companion:agent-check'),
+  askQuestion: (question) => ipcRenderer.invoke('companion:chat-ask', question),
+  cancelQuestion: (requestId) => ipcRenderer.invoke('companion:chat-cancel', requestId),
   onState: (listener) => {
     const handler = (_: unknown, state: CompanionState) => listener(state);
     ipcRenderer.on('companion:state', handler);
