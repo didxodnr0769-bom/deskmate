@@ -231,9 +231,9 @@ export class DesktopController {
   }
 
   private configureAppearance(value: unknown): CommandResult {
-    if (!validAppearanceSettings(value)) return { ok: false, error: '캐릭터 크기를 확인해 주세요.' };
+    if (!validAppearanceSettings(value)) return { ok: false, error: '캐릭터 종류와 크기를 확인해 주세요.' };
     if (!this.appearanceService) return { ok: false, error: this.state.appearanceError || '캐릭터 설정을 불러오지 못했어요.' };
-    if (value.scale === this.state.appearance.scale) return { ok: true };
+    if (value.scale === this.state.appearance.scale && value.characterId === this.state.appearance.characterId) return { ok: true };
     try { this.appearanceService.configure(value); }
     catch { return { ok: false, error: '캐릭터 설정을 저장하지 못했어요. 다시 시도해 주세요.' }; }
     this.closeContextMenu();

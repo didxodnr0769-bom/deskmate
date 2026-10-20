@@ -218,3 +218,9 @@ html[data-surface='chat'] { background: #f8f8f2; }
 .character-size-options button { min-height: 38px; border: 1px solid #dfe5d6; border-radius: 7px; background: #f8faf2; font-size: 12px; }
 .character-size-options button[aria-pressed='true'] { border-color: #8fa66f; background: #eaf0df; color: #4f693d; font-weight: 650; }
 .character-size-options button:disabled { cursor: default; opacity: 0.6; }
+
+.character-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
+.character-options button { min-width: 0; display: flex; flex-direction: column; align-items: center; padding: 5px 2px 9px; border: 1px solid #e0e6d7; border-radius: 9px; background: #f8faf4; font-size: 10px; gap: 2px; }
+.character-options button[aria-pressed='true'] { border-color: #8fa66f; background: #eaf0df; color: #4f693d; font-weight: 650; }
+.character-options button:disabled { cursor: default; opacity: 0.6; }
+.character-preview { display: block; width: 84px; max-width: 100%; height: 76px; }

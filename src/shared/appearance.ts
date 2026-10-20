@@ -2,13 +2,18 @@ import { WIDGET_SIZE, type Rect } from './contracts';
 
 export const CHARACTER_SCALES = [0.75, 1, 1.25, 1.5] as const;
 export type CharacterScale = typeof CHARACTER_SCALES[number];
-export interface AppearanceSettings { scale: CharacterScale }
-export const DEFAULT_APPEARANCE: AppearanceSettings = { scale: 1 };
+export const CHARACTER_OPTIONS = [
+  { id: 'rock', label: '돌멩이' }, { id: 'cat', label: '검은 고양이' }, { id: 'rabbit', label: '크림 토끼' },
+] as const;
+export type CharacterId = typeof CHARACTER_OPTIONS[number]['id'];
+export interface AppearanceSettings { scale: CharacterScale; characterId: CharacterId }
+export const DEFAULT_APPEARANCE: AppearanceSettings = { scale: 1, characterId: 'rock' };
 
 export function validAppearanceSettings(value: unknown): value is AppearanceSettings {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const data = value as Record<string, unknown>;
-  return Object.keys(data).length === 1 && CHARACTER_SCALES.some(scale => scale === data.scale);
+  return Object.keys(data).length === 2 && CHARACTER_SCALES.some(scale => scale === data.scale)
+    && CHARACTER_OPTIONS.some(character => character.id === data.characterId);
 }
 
 export function widgetSize(scale: CharacterScale) {

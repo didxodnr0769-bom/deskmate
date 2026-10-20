@@ -14,13 +14,15 @@ export class AppearanceService {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
       throw new Error('캐릭터 설정을 읽지 못했어요. 원본 파일은 유지합니다.');
     }
-    if (!data || data.version !== 1 || !validAppearanceSettings(data.settings)) throw new Error('캐릭터 설정이 올바르지 않아요. 원본 파일은 유지합니다.');
-    this.value = { scale: data.settings.scale };
+    let settings = data?.settings;
+    if (settings && typeof settings === 'object' && !Array.isArray(settings) && !Object.hasOwn(settings, 'characterId')) settings = { ...settings, characterId: 'rock' };
+    if (!data || data.version !== 1 || !validAppearanceSettings(settings)) throw new Error('캐릭터 설정이 올바르지 않아요. 원본 파일은 유지합니다.');
+    this.value = { scale: settings.scale, characterId: settings.characterId };
   }
   get settings(): AppearanceSettings { return { ...this.value }; }
   configure(value: unknown) {
-    if (!validAppearanceSettings(value)) throw new Error('캐릭터 크기를 확인해 주세요.');
-    const settings = { scale: value.scale };
+    if (!validAppearanceSettings(value)) throw new Error('캐릭터 종류와 크기를 확인해 주세요.');
+    const settings = { scale: value.scale, characterId: value.characterId };
     const temporary = `${this.filename}.${randomUUID()}.tmp`;
     try {
       writeFileSync(temporary, JSON.stringify({ version: 1, settings }), { encoding: 'utf8', mode: 0o600, flag: 'wx' });

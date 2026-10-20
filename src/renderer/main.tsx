@@ -4,7 +4,7 @@ import type { CompanionApi, CompanionState, HitRegion, Point, PanelTab } from '.
 import { renderCharacterScene, SCENE_SIZE } from './character-runtime';
 import { bubbleLayout, sceneLayout } from '../shared/appearance';
 import { CharacterSettings } from './CharacterSettings';
-import { rock } from './characters/rock';
+import { getCharacterDefinition } from './characters';
 import { getHpAppearance } from './hp-colors';
 import { MemoPanel } from './MemoPanel';
 import { BriefingSettings } from './BriefingSettings';
@@ -205,7 +205,7 @@ function Widget({ state }: { state: CompanionState }) {
         lastRatio = ratio;
         dirty = true;
       }
-      const frame = renderCharacterScene(context, rock, current, Date.now());
+      const frame = renderCharacterScene(context, getCharacterDefinition(current.appearance.characterId), current, Date.now());
       // Keep the bubble just above the HP label, including while the character jumps.
       const bubble = bubbleLayout(frame.hp.y, layout, window.innerHeight);
       bubbleRef.current?.style.setProperty('--bubble-bottom', `${bubble.bottom}px`);
@@ -242,12 +242,12 @@ function Widget({ state }: { state: CompanionState }) {
       characterPolygon.current = [];
       api.setHitRegions([]);
     };
-  }, [state.visible, state.appearance.scale]);
+  }, [state.visible, state.appearance.scale, state.appearance.characterId]);
 
   return <main
     className="widget"
     data-testid="companion-widget"
-    aria-label={`${rock.label} 데스크톱 동료`}
+    aria-label={`${getCharacterDefinition(state.appearance.characterId).label} 데스크톱 동료`}
     tabIndex={0}
     onKeyDown={(event) => {
       if (event.target !== event.currentTarget) return;
@@ -311,7 +311,7 @@ function Widget({ state }: { state: CompanionState }) {
         }, 300);
       }}
       onKeyDown={(event) => event.stopPropagation()}>
-      <div className="bubble-heading"><span className="bubble-dot" />{state.bubble.kind === 'preview' ? <span>알림 미리보기</span> : <button type="button" className="bubble-open" aria-label={state.bubble.kind === 'reminder' || state.bubble.kind === 'briefing' ? '메모 목록 열기' : '대화 창 열기'} title={state.bubble.kind === 'reminder' || state.bubble.kind === 'briefing' ? '메모 목록 열기' : '대화 창 열기'} data-testid="activate-notification" onClick={activateBubble}>{state.bubble.kind === 'briefing' ? '퇴근 전 할 일' : state.bubble.kind === 'reminder' ? '메모 알림' : '돌멩이와 대화'}</button>}<button type="button" className="bubble-close" aria-label={state.bubble.kind === 'chat' ? 'AI 답변 닫기' : state.bubble.kind === 'chat-loading' ? '생성 상태 접기' : '알림 닫기'} title={state.bubble.kind === 'chat-loading' ? '표시만 접고 답변은 계속 기다려요' : undefined} data-testid="dismiss-notification" disabled={dismissing} onClick={(event) => { event.stopPropagation(); void dismiss(); }}><CloseIcon /></button></div>
+      <div className="bubble-heading"><span className="bubble-dot" />{state.bubble.kind === 'preview' ? <span>알림 미리보기</span> : <button type="button" className="bubble-open" aria-label={state.bubble.kind === 'reminder' || state.bubble.kind === 'briefing' ? '메모 목록 열기' : '대화 창 열기'} title={state.bubble.kind === 'reminder' || state.bubble.kind === 'briefing' ? '메모 목록 열기' : '대화 창 열기'} data-testid="activate-notification" onClick={activateBubble}>{state.bubble.kind === 'briefing' ? '퇴근 전 할 일' : state.bubble.kind === 'reminder' ? '메모 알림' : `${getCharacterDefinition(state.appearance.characterId).label}와 대화`}</button>}<button type="button" className="bubble-close" aria-label={state.bubble.kind === 'chat' ? 'AI 답변 닫기' : state.bubble.kind === 'chat-loading' ? '생성 상태 접기' : '알림 닫기'} title={state.bubble.kind === 'chat-loading' ? '표시만 접고 답변은 계속 기다려요' : undefined} data-testid="dismiss-notification" disabled={dismissing} onClick={(event) => { event.stopPropagation(); void dismiss(); }}><CloseIcon /></button></div>
       {(dismissError || (state.bubble.kind === 'reminder' && state.reminderError)) && <p className="inline-error" role="alert" data-testid={state.bubble.kind === 'reminder' ? 'reminder-error' : 'bubble-error'}>{dismissError || state.reminderError}</p>}
       {state.bubble.kind === 'chat-loading' ? <div className="bubble-thinking"><span className="thinking-dots" aria-hidden="true"><span /><span /><span /></span><span data-testid="chat-loading-status">응답 생성 중…</span><button type="button" className="text-button" data-testid="cancel-bubble-question" disabled={cancelling} onClick={(event) => { event.stopPropagation(); void cancelChat(); }}>{cancelling ? '취소 중' : '취소'}</button></div> : <p tabIndex={state.bubble.kind === 'chat' ? 0 : undefined}>{state.bubble.text}</p>}
     </div>}
@@ -505,7 +505,7 @@ function App() {
   const { state, error } = useCompanionState();
   if (error) return isWidget ? null : <main className="connection-message" role="alert">{error}</main>;
   if (!state) return isWidget ? null : <main className="connection-message" role="status">작은 동료를 불러오고 있어요…</main>;
-  return isWidget ? <Widget state={state} /> : isChat ? <main className="chat-window" data-testid="companion-chat"><ChatPanel chat={state.chat} companion={api} active={state.chatOpen} shortcut={state.chatShortcut} shortcutRegistered={state.chatShortcutRegistered} shortcutError={state.chatShortcutError} /></main> : <Panel state={state} companion={api} />;
+  return isWidget ? <Widget state={state} /> : isChat ? <main className="chat-window" data-testid="companion-chat"><ChatPanel characterName={getCharacterDefinition(state.appearance.characterId).label} chat={state.chat} companion={api} active={state.chatOpen} shortcut={state.chatShortcut} shortcutRegistered={state.chatShortcutRegistered} shortcutError={state.chatShortcutError} /></main> : <Panel state={state} companion={api} />;
 }
 
 createRoot(document.getElementById('root')!).render(<App />);

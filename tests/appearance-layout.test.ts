@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bubbleLayout, CHARACTER_SCALES, resizedWidgetBounds, sceneLayout, widgetSize } from '../src/shared/appearance';
 import { getCharacterFrame } from '../src/renderer/character-runtime';
-import { rock } from '../src/renderer/characters/rock';
+import { BUILT_IN_CHARACTERS } from '../src/renderer/characters';
 import type { CompanionState } from '../src/shared/contracts';
 
 const work = { x: -1920, y: -1080, width: 3840, height: 2160 };
@@ -32,13 +32,13 @@ test('large character windows clamp to small displays and negative coordinates w
   }
 });
 
-test('the longest bubble, HP and rock stay in the window through every motion at every scale', () => {
+test('the longest bubble, HP and every character stay in the window through every motion at every scale', () => {
   const epoch = 1800000000000;
   for (const scale of CHARACTER_SCALES) {
     const size = widgetSize(scale), layout = sceneLayout(scale, size.width, size.height);
-    for (const motion of ['idle', 'walking', 'dragged', 'dropping', 'notify'] as const) for (let elapsed = 0; elapsed <= 2000; elapsed += 5) {
+    for (const character of BUILT_IN_CHARACTERS) for (const motion of ['idle', 'walking', 'dragged', 'dropping', 'notify'] as const) for (let elapsed = 0; elapsed <= 2000; elapsed += 5) {
       const state = { motion, motionStartedAt: epoch, direction: 1, hp: 70 } as CompanionState;
-      const frame = getCharacterFrame(rock, state, epoch + elapsed);
+      const frame = getCharacterFrame(character, state, epoch + elapsed);
       const bubbleBottom = layout.top + (frame.hp.y - 33) * layout.scale;
       assert.ok(bubbleBottom - 114 >= 0, `${scale}/${motion} bubble top`);
       assert.ok(bubbleBottom + 8 < layout.top + (frame.hp.y - 13) * layout.scale, 'bubble tail stays above the HP label');
@@ -52,10 +52,10 @@ test('the longest bubble, HP and rock stay in the window through every motion at
 
 
 test('a constrained display reserves the bubble heading and scrolls its body instead of clipping above the window', () => {
-  for (const scale of CHARACTER_SCALES) for (let elapsed = 0; elapsed <= 1700; elapsed += 5) {
+  for (const character of BUILT_IN_CHARACTERS) for (const scale of CHARACTER_SCALES) for (let elapsed = 0; elapsed <= 1700; elapsed += 5) {
     const layout = sceneLayout(scale, 210, 220);
     const state = { motion: 'notify', motionStartedAt: 0, direction: 1, hp: 70 } as CompanionState;
-    const frame = getCharacterFrame(rock, state, elapsed);
+    const frame = getCharacterFrame(character, state, elapsed);
     const bubble = bubbleLayout(frame.hp.y, layout, 220);
     assert.ok(220 - bubble.bottom - bubble.maxHeight >= 8 - 1e-9);
     assert.ok(bubble.maxHeight >= 60, 'heading and close button keep their space');

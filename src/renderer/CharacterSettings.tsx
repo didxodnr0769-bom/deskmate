@@ -1,6 +1,27 @@
-import React, { useRef, useState } from 'react';
-import { CHARACTER_SCALES, type AppearanceSettings } from '../shared/appearance';
+import React, { useEffect, useRef, useState } from 'react';
+import { CHARACTER_OPTIONS, CHARACTER_SCALES, type AppearanceSettings } from '../shared/appearance';
+import { getCharacterDefinition } from './characters';
+import type { CharacterDefinition } from './character-runtime';
+import type { CompanionState } from '../shared/contracts';
 import type { CompanionApi } from '../shared/contracts';
+
+function CharacterPreview({ character }: { character: CharacterDefinition }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext('2d');
+    if (!canvas || !context) return;
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = 84 * ratio; canvas.height = 76 * ratio;
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    context.clearRect(0, 0, 84, 76);
+    context.fillStyle = 'rgba(53,66,55,0.10)';
+    context.beginPath(); context.ellipse(42, 71, 27, 3, 0, 0, Math.PI * 2); context.fill();
+    context.translate(40, 70); context.scale(0.75, 0.75);
+    character.draw(context, { motion: 'idle', direction: 1, motionStartedAt: 0 } as CompanionState, 0);
+  }, [character]);
+  return <canvas ref={canvasRef} className="character-preview" aria-hidden="true" />;
+}
 
 export function CharacterSettings({ settings, error, companion }: {
   settings: AppearanceSettings; error: string | null; companion: CompanionApi;
@@ -22,6 +43,9 @@ export function CharacterSettings({ settings, error, companion }: {
   }
 
   return <section className="settings-card character-settings" aria-label="캐릭터 설정" data-testid="character-settings" aria-busy={saving}>
+    <h2 className="setting-title">함께할 동료</h2>
+    <div className="character-options" role="group" aria-label="기본 캐릭터 선택">{CHARACTER_OPTIONS.map(option => <button type="button" key={option.id} aria-pressed={settings.characterId === option.id} disabled={saving || !!error} data-testid={`character-${option.id}`} onClick={() => void apply({ ...settings, characterId: option.id })}><CharacterPreview character={getCharacterDefinition(option.id)} /><span>{option.label}</span></button>)}</div>
+    <div className="setting-divider" />
     <div className="setting-row"><h2 className="setting-title">캐릭터 크기</h2><output className="character-size-value" data-testid="character-size-value">{Math.round(settings.scale * 100)}%</output></div>
     <div className="character-size-options" role="group" aria-label="캐릭터 크기 선택">{CHARACTER_SCALES.map(scale => <button type="button" key={scale} aria-pressed={settings.scale === scale} disabled={saving || !!error} data-testid={`character-size-${scale * 100}`} onClick={() => void apply({ ...settings, scale })}>{scale * 100}%</button>)}</div>
     <p className="field-hint">캐릭터와 HP 크기가 함께 바뀝니다.<br />선택하면 바로 적용되며 다음 실행에도 유지돼요.</p>

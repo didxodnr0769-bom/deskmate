@@ -49,7 +49,7 @@ else {
     ] }, { role: 'editMenu' }]));
     desktop = new DesktopController();
     tray = new Tray(trayImage());
-    tray.setToolTip('Desktop Companion · 돌멩이');
+    tray.setToolTip('Desktop Companion · 작은 동료');
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: '대화하기', click: () => desktop?.openChat() },
       { label: '패널 열기', click: () => desktop?.openPanel() },
