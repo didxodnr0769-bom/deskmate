@@ -1,4 +1,5 @@
 import type { CompanionState, Point, Rect } from '../shared/contracts';
+import { getHpAppearance } from './hp-colors';
 
 export interface CharacterPose {
   x: number;
@@ -83,12 +84,13 @@ export function renderCharacterScene(
   roundedRect(context, inner, 2);
   context.fillStyle = '#dce4d9';
   context.fill();
-  const boundedHp = Math.max(0, Math.min(100, state.hp));
+  const hpAppearance = getHpAppearance(state.hp);
+  const boundedHp = hpAppearance.percent;
   if (boundedHp > 0) {
     context.save();
     roundedRect(context, inner, 2);
     context.clip();
-    context.fillStyle = boundedHp >= 100 ? '#7aab54' : '#a0bb75';
+    context.fillStyle = hpAppearance.color;
     context.fillRect(inner.x, inner.y, inner.width * boundedHp / 100, inner.height);
     context.fillStyle = 'rgba(255,255,255,0.22)';
     context.fillRect(inner.x, inner.y, inner.width * boundedHp / 100, 3);
@@ -109,7 +111,8 @@ export function renderCharacterScene(
   context.textAlign = 'left';
   context.fillText('HP', hp.x + 1, hp.y - 4);
   context.textAlign = 'right';
-  context.fillText(`${Math.round(boundedHp)}%`, hp.x + hp.width - 1, hp.y - 4);
+  context.fillStyle = hpAppearance.textColor;
+  context.fillText(`${boundedHp}%`, hp.x + hp.width - 1, hp.y - 4);
   context.restore();
 
   context.save();

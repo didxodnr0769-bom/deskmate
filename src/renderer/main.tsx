@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import type { CompanionApi, CompanionState, HitRegion, Point } from '../shared/contracts';
 import { renderCharacterScene, SCENE_SIZE } from './character-runtime';
 import { rock } from './characters/rock';
+import { getHpAppearance } from './hp-colors';
 import { MemoPanel } from './MemoPanel';
 import { BriefingSettings } from './BriefingSettings';
 import { ChatPanel } from './ChatPanel';
@@ -356,7 +357,8 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
   const savedDate = state.workSchedule?.date;
   const savedStart = state.workSchedule?.startTime;
   const savedEnd = state.workSchedule?.endTime;
-  const hp = Math.floor(Math.max(0, Math.min(100, state.hp)));
+  const hpAppearance = getHpAppearance(state.hp);
+  const hp = hpAppearance.percent;
   const { phase, remainingMinutes, isOvernight } = state.workProgress;
   const progressText = phase === 'unset'
     ? '출근·퇴근 시간을 입력해 주세요.'
@@ -453,8 +455,8 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
           {scheduleError && <p className="inline-error" role="alert" data-testid="work-error">{scheduleError}</p>}
         </form>
         <div className="setting-divider" />
-        <div className="hp-label-row"><span className="setting-title">퇴근 HP</span>{scheduleSaved && <span className="saved-indicator" role="status">적용됨</span>}<output data-testid="hp-value">{hp}<small>%</small></output></div>
-        <progress className="work-progress" max="100" value={hp} aria-label="퇴근 HP" data-testid="work-progress-bar">{hp}%</progress>
+        <div className="hp-label-row"><span className="setting-title">퇴근 HP</span>{scheduleSaved && <span className="saved-indicator" role="status">적용됨</span>}<output style={{ color: hpAppearance.textColor }} data-testid="hp-value">{hp}<small>%</small></output></div>
+        <progress className="work-progress" style={{ '--hp-color': hpAppearance.color } as React.CSSProperties} max="100" value={hp} aria-label="퇴근 HP" data-testid="work-progress-bar">{hp}%</progress>
         <p className="work-status" data-testid="work-status">{progressText}</p>
         {savedDate && (savedDate !== localDate() || isOvernight) && <p className="schedule-anchor" data-testid="schedule-anchor">{savedDate !== localDate() ? `${savedDate.replaceAll('-', '.')} 기준` : ''}{isOvernight ? `${savedDate !== localDate() ? ' · ' : ''}다음날 퇴근` : ''}</p>}
       </section>
