@@ -106,9 +106,9 @@ export class AppCommandService {
         this.ports.setWalking(command.enabled);
         return command.enabled ? '자유 이동을 켰어요. 말풍선을 닫으면 다시 움직여요.' : '자유 이동을 멈췄어요.';
       case 'ui.open':
-        if (!['chat', 'work', 'memos'].includes(command.target as string)) return '대화·근무·메모 중 열 화면을 알려 주세요.';
+        if (!['chat', 'work', 'memos', 'appearance'].includes(command.target as string)) return '대화·근무·메모·캐릭터 중 열 화면을 알려 주세요.';
         this.ports.open(command.target as PanelTab | 'chat');
-        return `${{ chat: '대화', work: '근무', memos: '메모' }[command.target as PanelTab | 'chat']} 화면을 열었어요.`;
+        return `${{ chat: '대화', work: '근무', memos: '메모', appearance: '캐릭터' }[command.target as PanelTab | 'chat']} 화면을 열었어요.`;
       case 'summary.get': {
         const pending = this.ports.memos().filter(memo => !memo.completed);
         return `${this.workStatus()}\n\n남은 할 일 ${pending.length}개\n${this.memoList(pending, '모든 할 일을 완료했어요.')}`;

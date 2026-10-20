@@ -1,7 +1,9 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, screen, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_SHORTCUT, DEFAULT_CHAT_SHORTCUT, CHAT_SIZE, PANEL_SIZE, WIDGET_SIZE, type BriefingSettings, type CommandResult, type CompanionState, type HitRegion, type Motion, type NotificationBubble, type PanelTab, type Point, type Rect } from '../../shared/contracts';
+import { DEFAULT_SHORTCUT, DEFAULT_CHAT_SHORTCUT, CHAT_SIZE, PANEL_SIZE, type BriefingSettings, type CommandResult, type CompanionState, type HitRegion, type Motion, type NotificationBubble, type PanelTab, type Point, type Rect } from '../../shared/contracts';
+import { DEFAULT_APPEARANCE, resizedWidgetBounds, validAppearanceSettings, widgetSize } from '../../shared/appearance';
+import { AppearanceService } from '../features/appearance';
 import { advanceRoam, clampBounds, hitTest, nativePosition, panelBounds, sanitizeHitRegions } from '../domain/geometry';
 import { getWorkProgress, validateWorkSchedule } from '../domain/worktime';
 import { loadWorkSchedule, saveWorkSchedule } from '../domain/worktime-store';
@@ -32,6 +34,7 @@ export class DesktopController {
   private readonly worktimeFile = join(app.getPath('userData'), 'worktime.json');
   private memoService: MemoService | null = null;
   private briefingService: WorkBriefingService | null = null;
+  private appearanceService: AppearanceService | null = null;
   private lastWorkRefresh = 0;
   private lastReminderRefresh = 0;
   private lastTick = Date.now();
@@ -70,7 +73,11 @@ export class DesktopController {
     let briefingError: string | null = null;
     try { this.briefingService = new WorkBriefingService(join(app.getPath('userData'), 'briefing.json')); }
     catch { briefingError = '퇴근 전 알림 설정을 읽지 못했어요. 원본 파일은 유지합니다.'; }
+    let appearanceError: string | null = null;
+    try { this.appearanceService = new AppearanceService(join(app.getPath('userData'), 'appearance.json')); }
+    catch { appearanceError = '캐릭터 설정을 읽지 못했어요. 원본 파일은 유지합니다.'; }
     this.state = {
+      appearance: this.appearanceService?.settings ?? { ...DEFAULT_APPEARANCE }, appearanceError,
       briefingSettings: this.briefingService?.settings ?? { ...DEFAULT_BRIEFING }, briefingError,
       chat: this.chatService.state, chatOpen: false, chatShortcut: DEFAULT_CHAT_SHORTCUT, chatShortcutRegistered: false, chatShortcutError: null, motion: 'idle', direction: 1, hp: workProgress.hp, workSchedule, workProgress, walking: true, visible: true,
       memos: this.memoService?.list() ?? [], memoError, reminderError: null,
@@ -79,7 +86,7 @@ export class DesktopController {
       shortcutRegistered: false, error: storageError,
     };
     const webPreferences = { preload: join(__dirname, '../preload/index.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false };
-    const initial = clampBounds({ x: display.workArea.x + Math.round(display.workArea.width * 0.65), y: display.workArea.y + Math.round(display.workArea.height * 0.4), ...WIDGET_SIZE }, display.workArea);
+    const initial = clampBounds({ x: display.workArea.x + Math.round(display.workArea.width * 0.65), y: display.workArea.y + Math.round(display.workArea.height * 0.4), ...widgetSize(this.state.appearance.scale) }, display.workArea);
     this.widget = new BrowserWindow({
       ...initial, title: 'Desktop Companion · 캐릭터', frame: false, transparent: true,
       backgroundColor: '#00000000', hasShadow: false, resizable: false,
@@ -149,6 +156,8 @@ export class DesktopController {
     ipcMain.handle('companion:shortcut', (event, value) => this.trusted(event, 'panel') ? this.registerShortcut(value) : { ok: false, error: '허용되지 않은 요청입니다.' });
     ipcMain.handle('companion:work-schedule', (event, value: unknown) => this.trusted(event, 'panel')
       ? this.applyWorkSchedule(value) : { ok: false, error: '허용되지 않은 요청입니다.' });
+    ipcMain.handle('companion:appearance', (event, value: unknown) => this.trusted(event, 'panel')
+      ? this.configureAppearance(value) : { ok: false, error: '허용되지 않은 요청입니다.' });
     ipcMain.handle('companion:briefing-settings', (event, value: unknown) => this.trusted(event, 'panel')
       ? this.configureBriefing(value) : { ok: false, error: '허용되지 않은 요청입니다.' });
     const memoCommand = (event: IpcMainInvokeEvent, action: (service: MemoService) => void) => this.trusted(event, 'panel')
@@ -163,7 +172,7 @@ export class DesktopController {
     listen('pointer-move', v => { if (isPoint(v)) this.movePointer(v); }, 'widget');
     listen('pointer-end', v => { if (isPoint(v)) this.endPointer(v); }, 'widget');
     listen('pointer-cancel', () => this.cancelPointer(), 'widget');
-    listen('panel-open', value => { if (value === undefined || value === 'work' || value === 'memos') this.openPanel(value); });
+    listen('panel-open', value => { if (value === undefined || value === 'work' || value === 'memos' || value === 'appearance') this.openPanel(value); });
     listen('context-menu', () => this.showContextMenu(), 'widget');
     listen('bubble-activate', id => { if (typeof id === 'string') this.activateBubble(id); }, 'widget');
     listen('panel-close', () => this.closePanel());
@@ -221,6 +230,27 @@ export class DesktopController {
     return { ok: true };
   }
 
+  private configureAppearance(value: unknown): CommandResult {
+    if (!validAppearanceSettings(value)) return { ok: false, error: '캐릭터 크기를 확인해 주세요.' };
+    if (!this.appearanceService) return { ok: false, error: this.state.appearanceError || '캐릭터 설정을 불러오지 못했어요.' };
+    if (value.scale === this.state.appearance.scale) return { ok: true };
+    try { this.appearanceService.configure(value); }
+    catch { return { ok: false, error: '캐릭터 설정을 저장하지 못했어요. 다시 시도해 주세요.' }; }
+    this.closeContextMenu();
+    this.cancelPointer();
+    const oldScale = this.state.appearance.scale;
+    this.state.appearance = this.appearanceService.settings;
+    const bounds = resizedWidgetBounds(this.widget.getBounds(), oldScale, this.state.appearance.scale, this.currentDisplay().workArea);
+    this.widget.setBounds(bounds);
+    this.position = { x: bounds.x, y: bounds.y };
+    // Never use an old silhouette while the renderer applies a different scale.
+    this.regions = [];
+    this.setIgnored(true);
+    this.positionPanel();
+    this.publish();
+    return { ok: true };
+  }
+
   private publish() {
     for (const win of [this.widget, this.panel, this.chat]) {
       if (!win.isDestroyed() && !win.webContents.isLoadingMainFrame()) win.webContents.send('companion:state', this.state);
@@ -247,7 +277,7 @@ export class DesktopController {
     this.gesture = null;
     this.releaseAt = null;
     this.refreshDisplays();
-    const bounds = clampBounds({ ...this.widget.getBounds(), ...WIDGET_SIZE }, this.currentDisplay().workArea);
+    const bounds = resizedWidgetBounds(this.widget.getBounds(), this.state.appearance.scale, this.state.appearance.scale, this.currentDisplay().workArea);
     this.widget.setBounds(bounds);
     this.position = { x: bounds.x, y: bounds.y };
     this.positionPanel();
@@ -312,6 +342,7 @@ export class DesktopController {
       { label: '대화하기', click: () => this.openChat() },
       { label: '근무시간', click: () => this.openPanel('work') },
       { label: '메모', click: () => this.openPanel('memos') },
+      { label: '캐릭터 설정', click: () => this.openPanel('appearance') },
     ]);
     this.contextMenu = menu;
     this.setMotion(this.restingMotion());
@@ -525,7 +556,7 @@ export class DesktopController {
     const d = screen.getDisplayNearestPoint(point);
     this.state.displayId = d.id;
     const from = this.widget.getBounds();
-    const placed = clampBounds({ ...from, ...WIDGET_SIZE }, d.workArea);
+    const placed = resizedWidgetBounds(from, this.state.appearance.scale, this.state.appearance.scale, d.workArea);
     this.widget.setBounds(placed);
     this.position = { x: placed.x, y: placed.y };
     // Only the character pose settles. The native window stays where it was released.
@@ -541,7 +572,7 @@ export class DesktopController {
     this.state.displayId = d.id;
     this.gesture = null;
     this.releaseAt = null;
-    const placed = clampBounds({ ...from, ...WIDGET_SIZE }, d.workArea);
+    const placed = resizedWidgetBounds(from, this.state.appearance.scale, this.state.appearance.scale, d.workArea);
     this.widget.setBounds(placed);
     this.position = { x: placed.x, y: placed.y };
     this.setMotion(this.restingMotion());

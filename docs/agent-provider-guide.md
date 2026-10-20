@@ -55,7 +55,7 @@
 | `memo.complete` | 완료 또는 완료 취소 |
 | `work.get`, `work.update` | 적용된 근무 조회·날짜와 출퇴근 시각 변경 |
 | `character.walk` | 자율 이동 켜기·끄기 |
-| `ui.open` | 대화·근무·메모 화면 열기 |
+| `ui.open` | 대화·근무·메모·캐릭터 설정 화면 열기 |
 | `summary.get` | 적용된 근무 현황과 남은 메모 요약 |
 | `briefing.configure` | 퇴근 전 할 일 요약 켜기·끄기와 시점 설정 |
 

@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { CompanionApi, CompanionState, HitRegion, Point } from '../shared/contracts';
+import type { CompanionApi, CompanionState, HitRegion, Point, PanelTab } from '../shared/contracts';
 import { renderCharacterScene, SCENE_SIZE } from './character-runtime';
+import { bubbleLayout, sceneLayout } from '../shared/appearance';
+import { CharacterSettings } from './CharacterSettings';
 import { rock } from './characters/rock';
 import { getHpAppearance } from './hp-colors';
 import { MemoPanel } from './MemoPanel';
@@ -190,7 +192,12 @@ function Widget({ state }: { state: CompanionState }) {
       }
       lastDrawAt = now;
       const current = stateRef.current;
-      const ratio = window.devicePixelRatio || 1;
+      const layout = sceneLayout(current.appearance.scale, window.innerWidth, window.innerHeight);
+      canvas.style.width = `${layout.width}px`;
+      canvas.style.height = `${layout.height}px`;
+      canvas.style.left = `${layout.left}px`;
+      canvas.style.top = `${layout.top}px`;
+      const ratio = (window.devicePixelRatio || 1) * layout.scale;
       if (ratio !== lastRatio) {
         canvas.width = Math.round(SCENE_SIZE.width * ratio);
         canvas.height = Math.round(SCENE_SIZE.height * ratio);
@@ -200,7 +207,9 @@ function Widget({ state }: { state: CompanionState }) {
       }
       const frame = renderCharacterScene(context, rock, current, Date.now());
       // Keep the bubble just above the HP label, including while the character jumps.
-      bubbleRef.current?.style.setProperty('--bubble-motion-y', `${frame.pose.y}px`);
+      const bubble = bubbleLayout(frame.hp.y, layout, window.innerHeight);
+      bubbleRef.current?.style.setProperty('--bubble-bottom', `${bubble.bottom}px`);
+      bubbleRef.current?.style.setProperty('--bubble-max-height', `${bubble.maxHeight}px`);
       if (dirty || now - lastHitUpdate >= 50) {
         const bounds = canvas.getBoundingClientRect();
         const scaleX = bounds.width / SCENE_SIZE.width;
@@ -233,7 +242,7 @@ function Widget({ state }: { state: CompanionState }) {
       characterPolygon.current = [];
       api.setHitRegions([]);
     };
-  }, [state.visible]);
+  }, [state.visible, state.appearance.scale]);
 
   return <main
     className="widget"
@@ -341,7 +350,7 @@ function remainingTime(minutes: number | null): string {
 }
 
 function Panel({ state, companion }: { state: CompanionState; companion: CompanionApi }) {
-  const [tab, setTab] = useState<'work' | 'memos'>(() => state.panelNavigation?.tab || 'work');
+  const [tab, setTab] = useState<PanelTab>(() => state.panelNavigation?.tab || 'work');
   useEffect(() => { if (state.panelNavigation) setTab(state.panelNavigation.tab); }, [state.panelNavigation?.sequence]);
   const [date, setDate] = useState(() => state.workSchedule?.date || localDate());
   const [startTime, setStartTime] = useState(() => state.workSchedule?.startTime || '');
@@ -430,7 +439,7 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
     <div className="panel-tabs" role="tablist" aria-label="관리 항목" onKeyDown={(event) => {
       if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
       event.preventDefault();
-      const tabs = ['work', 'memos'] as const;
+      const tabs = ['work', 'memos', 'appearance'] as const;
       const index = tabs.indexOf(tab);
       const next = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[tabs.length - 1] : tabs[(index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
       setTab(next);
@@ -438,6 +447,7 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
     }}>
       <button type="button" role="tab" id="work-tab" aria-controls="work-tabpanel" aria-selected={tab === 'work'} tabIndex={tab === 'work' ? 0 : -1} data-testid="work-tab" onClick={() => setTab('work')}>근무</button>
       <button type="button" role="tab" id="memos-tab" aria-controls="memos-tabpanel" aria-selected={tab === 'memos'} tabIndex={tab === 'memos' ? 0 : -1} data-testid="memos-tab" onClick={() => setTab('memos')}>메모</button>
+      <button type="button" role="tab" id="appearance-tab" aria-controls="appearance-tabpanel" aria-selected={tab === 'appearance'} tabIndex={tab === 'appearance' ? 0 : -1} data-testid="appearance-tab" onClick={() => setTab('appearance')}>캐릭터</button>
     </div>
     <div className="panel-content">
       <div role="tabpanel" id="work-tabpanel" aria-labelledby="work-tab" hidden={tab !== 'work'}>
@@ -479,6 +489,9 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
       </div>
       <div role="tabpanel" id="memos-tabpanel" aria-labelledby="memos-tab" hidden={tab !== 'memos'}>
         <MemoPanel memos={state.memos} memoError={state.memoError} reminderError={state.reminderError} companion={companion} />
+      </div>
+      <div role="tabpanel" id="appearance-tabpanel" aria-labelledby="appearance-tab" hidden={tab !== 'appearance'}>
+        <CharacterSettings settings={state.appearance} error={state.appearanceError} companion={companion} />
       </div>
     </div>
     <footer className="panel-footer">

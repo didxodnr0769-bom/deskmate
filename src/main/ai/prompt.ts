@@ -27,7 +27,7 @@ export const APP_COMMAND_INSTRUCTIONS = CHAT_INSTRUCTIONS + '\n\n' + [
   'work.get: {name:"work.get"}. 근무 시간·출퇴근 진행률 조회.',
   'work.update: {name:"work.update",date?:"YYYY-MM-DD",startTime?:"HH:mm",endTime?:"HH:mm"}. 변경 요청한 필드만 넣으세요. 오늘 날짜는 app_context.local_date를 기준으로 하세요.',
   'character.walk: {name:"character.walk",enabled:boolean}. 캐릭터 자율 이동 켜기·끄기.',
-  'ui.open: {name:"ui.open",target:"chat"|"work"|"memos"}. 대화·근무·메모 창 열기.',
+  'ui.open: {name:"ui.open",target:"chat"|"work"|"memos"|"appearance"}. 대화·근무·메모·캐릭터 설정 창 열기.',
   'summary.get: {name:"summary.get"}. 오늘 메모·근무 요약 조회.',
   'briefing.configure: {name:"briefing.configure",enabled:boolean,beforeMinutes?:number}. 퇴근 전 브리핑 켜기·끄기. beforeMinutes는 퇴근 몇 분 전인지 사용자가 지정한 경우에만 분 단위 숫자로 넣으세요.',
   'ReminderInput은 다음 네 형식 중 하나입니다: {kind:"clock",time:"HH:mm"}, {kind:"after",minutes:양의 정수}, {kind:"daily",time:"HH:mm"}, {kind:"weekly",time:"HH:mm",weekdays:[0부터 6까지의 정수]}. 0은 일요일, 1은 월요일, 6은 토요일입니다.',

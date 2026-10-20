@@ -28,6 +28,7 @@ memos*.json
 memos.json.*.tmp
 worktime*.json
 briefing*.json
+appearance*.json
 worktime.json.*.tmp
 userData/
 .local-data/
