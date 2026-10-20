@@ -618,7 +618,7 @@ test('native context menu is widget-only, pauses movement and targets each reque
     assert.equal(h.menus.length, 0);
     h.send('context-menu');
     const menu = h.menus[0];
-    assert.deepEqual(Array.from(menu.items, item => item.label), ['대화하기', '근무시간', '메모']);
+    assert.deepEqual(Array.from(menu.items, item => item.label), ['대화하기', '근무시간', '메모', '캐릭터 설정']);
     const origin = h.controller.widget.getBounds();
     h.tick(3000);
     assert.deepEqual(h.controller.widget.getBounds(), origin);
@@ -811,3 +811,89 @@ test('briefing acknowledgement write failure keeps the visible notice and can be
     assert.equal(close(h, bubble.id).ok, true); assert.equal(h.state().bubble, null);
   });
 });
+
+
+test('appearance changes resize a real controller window, preserve feet and notices, and survive restart', () => fixture([], (h, directory) => {
+  h.send('preview-notification'); const bubble = h.state().bubble;
+  const before = h.controller.widget.getBounds();
+  assert.equal(h.invoke('appearance', { scale: 1.5, characterId: 'rock' }).ok, true);
+  const after = h.controller.widget.getBounds();
+  assert.equal(after.width, 420); assert.equal(after.height, 450);
+  assert.equal(before.x + before.width / 2, after.x + after.width / 2);
+  assert.equal(before.y + before.height - 34, after.y + after.height - 51);
+  assert.deepEqual(h.state().bubble, bubble);
+  const restarted = harness(directory, localTime(10, 5));
+  try { assert.equal(restarted.state().appearance.scale, 1.5); assert.equal(restarted.controller.widget.getBounds().width, 420); }
+  finally { restarted.dispose(); }
+}));
+
+test('appearance IPC accepts only validated values from the panel main frame', () => fixture([], (h, directory) => {
+  const before = h.controller.widget.getBounds();
+  for (const surface of ['widget', 'chat'] as const) assert.equal(h.invoke('appearance', { scale: 1.5, characterId: 'rock' }, surface).ok, false);
+  assert.equal(h.invokeFrom<CommandResult>('appearance', { scale: 1.5, characterId: 'rock' }, h.event('panel', true)).ok, false);
+  for (const value of [{ scale: NaN, characterId: 'rock' }, { scale: 9, characterId: 'rock' }, { scale: '1.5', characterId: 'rock' }, { scale: 1.5, characterId: 'rock', executable: 'anything' }]) assert.equal(h.invoke('appearance', value).ok, false);
+  assert.deepEqual(h.controller.widget.getBounds(), before);
+  assert.equal(h.state().appearance.scale, 1);
+  h.send('context-menu'); h.menus.at(-1)!.select('캐릭터 설정');
+  assert.equal(h.state().panelNavigation?.tab, 'appearance');
+}));
+
+test('appearance size is retained after drag, display changes and constrained displays', () => fixture([], h => {
+  h.invoke('appearance', { scale: 1.5, characterId: 'rock' });
+  h.send('pointer-begin', { x: 300, y: 300 }); h.send('pointer-end', { x: 400, y: 400 });
+  assert.equal(h.controller.widget.getBounds().width, 420);
+  const display = h.screen.getPrimaryDisplay();
+  display.workArea = { x: -500, y: -300, width: 210, height: 220 };
+  h.screen.emit('display-metrics-changed');
+  const small = h.controller.widget.getBounds();
+  assert.equal(small.width, 210); assert.equal(small.height, 220); assert.equal(h.state().appearance.scale, 1.5);
+  display.workArea = { x: 0, y: 0, width: 1920, height: 1080 };
+  h.screen.emit('display-metrics-changed');
+  assert.equal(h.controller.widget.getBounds().width, 420); assert.equal(h.controller.widget.getBounds().height, 450);
+}));
+
+test('failed appearance storage cannot resize the widget or claim success and retry remains possible', () => fixture([], (h, directory) => {
+  h.invoke('appearance', { scale: 1.25, characterId: 'rock' }); const bounds = h.controller.widget.getBounds();
+  const file = join(directory, 'appearance.json'), backup = file + '.preserved';
+  const original = readFileSync(file, 'utf8'); renameSync(file, backup); mkdirSync(file);
+  try {
+    assert.equal(h.invoke('appearance', { scale: 1.5, characterId: 'rock' }).ok, false);
+    assert.equal(h.state().appearance.scale, 1.25); assert.deepEqual(h.controller.widget.getBounds(), bounds);
+    assert.equal(readFileSync(backup, 'utf8'), original);
+  } finally { rmSync(file, { recursive: true }); renameSync(backup, file); }
+  assert.equal(h.invoke('appearance', { scale: 1.5, characterId: 'rock' }).ok, true);
+}));
+
+test('corrupt appearance preferences preserve their bytes and do not prevent ordinary memo operations', () => fixture([], (h, directory) => {
+  const file = join(directory, 'appearance.json'); writeFileSync(file, '{invalid original');
+  const restarted = harness(directory, localTime(10, 5));
+  try {
+    assert.ok(restarted.state().appearanceError); assert.equal(restarted.state().appearance.scale, 1);
+    assert.equal(restarted.invoke('appearance', { scale: 1.5, characterId: 'rock' }).ok, false);
+    assert.equal(readFileSync(file, 'utf8'), '{invalid original');
+    assert.equal(restarted.invoke('memo-add', { text: '계속 사용 가능한 메모', reminderTime: null }).ok, true);
+  } finally { restarted.dispose(); }
+}));
+
+
+test('choosing the already active appearance does not discard a stationary click region', () => fixture([], h => {
+  h.send('walking', false, 'panel'); const bounds = h.controller.widget.getBounds();
+  h.screen.getCursorScreenPoint = () => ({ x: bounds.x + 100, y: bounds.y + 200 });
+  h.send('hit-regions', [{ type: 'rect', rect: { x: 90, y: 190, width: 30, height: 30 } }]); h.tick();
+  assert.equal(h.controller.widget.ignored, false);
+  assert.equal(h.invoke('appearance', { scale: 1, characterId: 'rock' }).ok, true); h.tick();
+  assert.equal(h.controller.widget.ignored, false);
+}));
+
+
+test('switching characters at the same scale preserves notices and history and restores the selected character', () => fixture([], (h, directory) => {
+  h.invoke('appearance', { scale: 1.25, characterId: 'rock' }); h.send('preview-notification');
+  const bubble = h.state().bubble, bounds = h.controller.widget.getBounds(), chat = h.state().chat;
+  assert.equal(h.invoke('appearance', { scale: 1.25, characterId: 'cat' }).ok, true);
+  assert.deepEqual(h.state().appearance, { scale: 1.25, characterId: 'cat' });
+  assert.deepEqual(h.state().bubble, bubble); assert.deepEqual(h.state().chat, chat); assert.deepEqual(h.controller.widget.getBounds(), bounds);
+  assert.equal(h.invoke('appearance', { scale: 1.25, characterId: 'unknown' }).ok, false);
+  const restarted = harness(directory, localTime(10, 5));
+  try { assert.deepEqual(restarted.state().appearance, { scale: 1.25, characterId: 'cat' }); }
+  finally { restarted.dispose(); }
+}));

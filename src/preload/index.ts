@@ -31,6 +31,7 @@ const api: CompanionApi = {
   closePanel: () => send('companion:panel-close'),
   toggleVisibility: () => send('companion:visibility'),
   setWalking: (v) => send('companion:walking', v),
+  setAppearance: (v) => ipcRenderer.invoke('companion:appearance', v),
   setWorkSchedule: (v) => ipcRenderer.invoke('companion:work-schedule', v),
   setBriefingSettings: (v) => ipcRenderer.invoke('companion:briefing-settings', v),
   addMemo: (draft) => ipcRenderer.invoke('companion:memo-add', draft),

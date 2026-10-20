@@ -1,6 +1,6 @@
 # AI Agent로 캐릭터 바꾸기
 
-이 프로젝트 폴더에서 Codex나 Claude Code를 실행하고 원하는 외형을 요청하면, Agent가 캐릭터 소스와 그 외형에 어울리는 동작을 함께 수정하는 방식입니다. 초기 캐릭터는 Canvas 2D로 그린 돌멩이입니다.
+이 프로젝트 폴더에서 Codex나 Claude Code를 실행하고 원하는 외형을 요청하면, Agent가 캐릭터 소스와 그 외형에 어울리는 동작을 함께 수정하는 방식입니다. 기본 제공 캐릭터는 Canvas 2D로 그린 돌멩이·검은 고양이·크림 토끼이며, 처음에는 돌멩이를 사용합니다. 관리 패널의 **캐릭터** 탭에서 선택할 수 있습니다.
 
 ## 요청 예시
 
@@ -12,12 +12,15 @@
 
 | 파일 | 역할 |
 | --- | --- |
-| `src/renderer/characters/rock.ts` | 기본 외형, 동작별 포즈, 캐릭터 윤곽, 알림 점프 설정 |
+| `src/renderer/characters/rock.ts`, `cat.ts`, `rabbit.ts` | 각 외형, 동작별 포즈, 클릭 윤곽과 알림 점프 |
+| `src/renderer/characters/index.ts` | 선택 ID와 캐릭터 정의의 연결 |
 | `src/renderer/character-runtime.ts` | `CharacterDefinition` 계약과 Canvas 장면 렌더링, 공통 HP 표현 |
-| `src/renderer/main.tsx` | 사용할 캐릭터 import와 렌더러 연결, 패널·말풍선 UI |
+| `src/renderer/main.tsx` | 선택한 캐릭터 렌더러 연결, 패널·말풍선 UI |
+| `src/shared/appearance.ts` | 선택 가능한 ID·이름, 크기 선택·창 배치와 실제 장면 배율 |
+| `src/renderer/CharacterSettings.tsx` | 캐릭터 종류·크기 설정 UI와 프리뷰 |
 | `src/shared/contracts.ts` | 앱 전체가 사용하는 상태·명령 계약 |
 
-기본 캐릭터를 바로 수정하거나 `src/renderer/characters/cat.ts`처럼 새 파일을 만들 수 있습니다. 새 파일을 만들었다면 `main.tsx`가 가져오는 캐릭터와 렌더링 호출을 새 정의로 연결하세요. 파일을 추가하는 것만으로 자동 선택되지는 않습니다.
+기본 캐릭터를 수정하거나 `src/renderer/characters/fox.ts`처럼 새 정의를 만들 수 있습니다. 새 정의는 `characters/index.ts`의 registry와 `src/shared/appearance.ts`의 `CHARACTER_OPTIONS`에 같은 ID로 등록하세요. 공유 ID 검증과 선택 UI는 이 목록을 사용합니다. 프리뷰와 실제 캐릭터가 같은 정의를 사용하며 파일 추가만으로 자동 선택되지는 않습니다.
 
 외형 수정은 캐릭터 정의 파일을 중심으로 진행합니다. 공통 HP·패널 배치나 크기까지 바꾸는 경우에만 runtime·UI를 함께 조정합니다. 근무시간·메모·알림 스케줄·AI 연결은 캐릭터 제작 책임에 넣지 않습니다.
 
@@ -33,7 +36,7 @@
 | `getPose(state, epochNow)` | 현재 상태의 위치·회전·가로세로 배율 |
 | `draw(context, state, epochNow)` | 로컬 원점을 기준으로 캐릭터 그리기 |
 
-로컬 원점 `(0, 0)`은 캐릭터 발밑입니다. 기본 장면은 `280 × 300`이고 발밑은 장면 좌표 `(140, 266)`에 놓입니다. 캐릭터 위쪽은 음수 Y 좌표로 그립니다. HP는 runtime이 그리며 `getPose`의 X·Y 이동을 따라갑니다.
+로컬 원점 `(0, 0)`은 캐릭터 발밑입니다. 논리 장면은 `280 × 300`이고 발밑은 장면 좌표 `(140, 266)`에 놓입니다. 캐릭터 위쪽은 음수 Y 좌표로 그립니다. HP는 runtime이 그리며 `getPose`의 X·Y 이동을 따라갑니다. 사용자가 선택한 크기는 장면·클릭 윤곽에 공통으로 적용되므로 캐릭터 정의에서 별도 배율을 곱하지 않습니다. 말풍선은 HP 위치를 따라가되 글자 크기는 유지합니다.
 
 `getPose`가 반환하는 `rotation`은 라디안, `x`·`y`는 장면 좌표 이동량, `scaleX`·`scaleY`는 배율입니다. runtime이 그리기와 클릭 윤곽에 같은 변환을 적용합니다. `draw` 안에서만 팔다리를 크게 움직이면 고정된 `hitPolygon`과 어긋날 수 있으므로 실제 클릭도 확인하세요.
 

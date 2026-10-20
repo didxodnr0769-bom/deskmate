@@ -7,7 +7,8 @@ function ThinkingDots() {
   return <span className="thinking-dots" aria-hidden="true"><span /><span /><span /></span>;
 }
 
-export function ChatPanel({ chat, companion, active, shortcut, shortcutRegistered, shortcutError }: {
+export function ChatPanel({ chat, companion, active, shortcut, shortcutRegistered, shortcutError, characterName = '돌멩이' }: {
+  characterName?: string;
   chat: ChatState;
   companion: CompanionApi;
   active: boolean;
@@ -165,7 +166,7 @@ export function ChatPanel({ chat, companion, active, shortcut, shortcutRegistere
     else companion.closeChat();
   }}>
     <header className="panel-header chat-header">
-      <div className="brand"><span className="brand-stone" aria-hidden="true">• •</span><span>돌멩이와 대화</span></div>
+      <div className="brand"><span className="brand-stone" aria-hidden="true">• •</span><span>{characterName}와 대화</span></div>
       <div className="chat-header-actions">
         <button ref={settingsButtonRef} type="button" className="icon-button chat-settings-toggle" aria-label="대화 설정" title="대화 설정" aria-expanded={settingsOpen} aria-controls="chat-settings" data-testid="chat-settings-toggle" onClick={() => setSettingsOpen((value) => !value)}><svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><circle cx="6" cy="4" r="1.5" fill="#f8f8f2" stroke="currentColor" strokeWidth="1.2" /><circle cx="10" cy="8" r="1.5" fill="#f8f8f2" stroke="currentColor" strokeWidth="1.2" /><circle cx="6" cy="12" r="1.5" fill="#f8f8f2" stroke="currentColor" strokeWidth="1.2" /></svg></button>
         <button type="button" className="text-button" data-testid="new-conversation" disabled={resetting} title="현재 대화를 지우고 새 대화 시작" onClick={() => void newConversation()}>{resetting ? '시작 중…' : '새 대화'}</button>
@@ -192,11 +193,11 @@ export function ChatPanel({ chat, companion, active, shortcut, shortcutRegistere
     }}>
       {chat.messages.length === 0 && <div className="chat-empty"><span className="chat-empty-stone" aria-hidden="true">• •</span><h1>무슨 이야기를 해볼까요?</h1><p>질문과 답변이 여기에 쌓여요.<br />‘새 대화’를 누르기 전까지 이어서 기억해요.</p><div className="chat-examples" aria-label="이렇게 물어보세요">{['남은 할 일 보여줘', '10분 뒤 물 마시기 추가해줘', '물 마시기 완료해줘', '오늘 퇴근시간을 19시로 바꿔줘', '이동 멈춰줘'].map(example => <button type="button" className="text-button" key={example} onClick={() => { setDraft(example); textareaRef.current?.focus(); }}>{example}</button>)}</div><p className="chat-memory-hint">일반 대화에는 앱 데이터를 자동으로 보내지 않아요.<br />요청한 조회 결과는 대화 이력에 남아요.<br />대화는 앱을 종료하면 사라져요.</p></div>}
       {chat.messages.map((message) => <article className={`chat-message chat-message-${message.role}`} key={message.id} data-testid={`chat-message-${message.role}`} data-status={message.status}>
-        <span className="chat-message-label">{message.role === 'user' ? '나' : '돌멩이'}</span>
+        <span className="chat-message-label">{message.role === 'user' ? '나' : characterName}</span>
         <div className="chat-message-body">{message.status === 'pending' && message.role === 'assistant' ? <span className="chat-thinking"><ThinkingDots />응답 생성 중…</span> : message.text}</div>
         {message.role === 'user' && (message.status === 'cancelled' || message.status === 'error') && <span className="chat-message-status">{message.status === 'cancelled' ? '답변 요청 취소됨' : '답변을 받지 못했어요'}</span>}
       </article>)}
-      {thinking && !hasPendingAssistant && <article className="chat-message chat-message-assistant" data-testid="chat-thinking"><span className="chat-message-label">돌멩이</span><div className="chat-message-body chat-thinking"><ThinkingDots />응답 생성 중…</div></article>}
+      {thinking && !hasPendingAssistant && <article className="chat-message chat-message-assistant" data-testid="chat-thinking"><span className="chat-message-label">{characterName}</span><div className="chat-message-body chat-thinking"><ThinkingDots />응답 생성 중…</div></article>}
     </div>
     <form className="chat-question-form" onSubmit={sendQuestion}>
       <p className="chat-context-hint" id="chat-context-hint">새 대화 전까지 기억해요 · 앱 종료 시 초기화<br />앱 정보는 요청할 때만 조회하며 결과는 이력에 남아요.</p>

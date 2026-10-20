@@ -1,5 +1,6 @@
+import type { AppearanceSettings } from './appearance';
 import type { ChatState } from './chat';
-export type PanelTab = 'work' | 'memos';
+export type PanelTab = 'work' | 'memos' | 'appearance';
 export type Motion = 'idle' | 'walking' | 'dragged' | 'dropping' | 'notify';
 export interface Point { x: number; y: number }
 export interface Rect extends Point { width: number; height: number }
@@ -30,6 +31,8 @@ export type NotificationBubble = { id: string; text: string; kind: 'preview' }
   | { id: string; text: string; kind: 'chat-loading'; requestId: string }
   | { id: string; text: string; kind: 'briefing'; occurrence: string };
 export interface CompanionState {
+  appearance: AppearanceSettings;
+  appearanceError: string | null;
   chat: ChatState;
   chatOpen: boolean;
   chatShortcut: string;
@@ -81,6 +84,7 @@ export interface CompanionApi {
   toggleVisibility(): void;
   setWalking(value: boolean): void;
   setWorkSchedule(schedule: WorkSchedule): Promise<CommandResult>;
+  setAppearance(settings: AppearanceSettings): Promise<CommandResult>;
   setBriefingSettings(settings: BriefingSettings): Promise<CommandResult>;
   addMemo(draft: MemoDraft): Promise<CommandResult>;
   updateMemo(id: string, draft: MemoDraft): Promise<CommandResult>;

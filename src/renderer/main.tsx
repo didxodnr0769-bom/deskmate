@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { CompanionApi, CompanionState, HitRegion, Point } from '../shared/contracts';
+import type { CompanionApi, CompanionState, HitRegion, Point, PanelTab } from '../shared/contracts';
 import { renderCharacterScene, SCENE_SIZE } from './character-runtime';
-import { rock } from './characters/rock';
+import { bubbleLayout, sceneLayout } from '../shared/appearance';
+import { CharacterSettings } from './CharacterSettings';
+import { getCharacterDefinition } from './characters';
+import { getHpAppearance } from './hp-colors';
 import { MemoPanel } from './MemoPanel';
 import { BriefingSettings } from './BriefingSettings';
 import { ChatPanel } from './ChatPanel';
@@ -189,7 +192,12 @@ function Widget({ state }: { state: CompanionState }) {
       }
       lastDrawAt = now;
       const current = stateRef.current;
-      const ratio = window.devicePixelRatio || 1;
+      const layout = sceneLayout(current.appearance.scale, window.innerWidth, window.innerHeight);
+      canvas.style.width = `${layout.width}px`;
+      canvas.style.height = `${layout.height}px`;
+      canvas.style.left = `${layout.left}px`;
+      canvas.style.top = `${layout.top}px`;
+      const ratio = (window.devicePixelRatio || 1) * layout.scale;
       if (ratio !== lastRatio) {
         canvas.width = Math.round(SCENE_SIZE.width * ratio);
         canvas.height = Math.round(SCENE_SIZE.height * ratio);
@@ -197,9 +205,11 @@ function Widget({ state }: { state: CompanionState }) {
         lastRatio = ratio;
         dirty = true;
       }
-      const frame = renderCharacterScene(context, rock, current, Date.now());
+      const frame = renderCharacterScene(context, getCharacterDefinition(current.appearance.characterId), current, Date.now());
       // Keep the bubble just above the HP label, including while the character jumps.
-      bubbleRef.current?.style.setProperty('--bubble-motion-y', `${frame.pose.y}px`);
+      const bubble = bubbleLayout(frame.hp.y, layout, window.innerHeight);
+      bubbleRef.current?.style.setProperty('--bubble-bottom', `${bubble.bottom}px`);
+      bubbleRef.current?.style.setProperty('--bubble-max-height', `${bubble.maxHeight}px`);
       if (dirty || now - lastHitUpdate >= 50) {
         const bounds = canvas.getBoundingClientRect();
         const scaleX = bounds.width / SCENE_SIZE.width;
@@ -232,12 +242,12 @@ function Widget({ state }: { state: CompanionState }) {
       characterPolygon.current = [];
       api.setHitRegions([]);
     };
-  }, [state.visible]);
+  }, [state.visible, state.appearance.scale, state.appearance.characterId]);
 
   return <main
     className="widget"
     data-testid="companion-widget"
-    aria-label={`${rock.label} 데스크톱 동료`}
+    aria-label={`${getCharacterDefinition(state.appearance.characterId).label} 데스크톱 동료`}
     tabIndex={0}
     onKeyDown={(event) => {
       if (event.target !== event.currentTarget) return;
@@ -301,7 +311,7 @@ function Widget({ state }: { state: CompanionState }) {
         }, 300);
       }}
       onKeyDown={(event) => event.stopPropagation()}>
-      <div className="bubble-heading"><span className="bubble-dot" />{state.bubble.kind === 'preview' ? <span>알림 미리보기</span> : <button type="button" className="bubble-open" aria-label={state.bubble.kind === 'reminder' || state.bubble.kind === 'briefing' ? '메모 목록 열기' : '대화 창 열기'} title={state.bubble.kind === 'reminder' || state.bubble.kind === 'briefing' ? '메모 목록 열기' : '대화 창 열기'} data-testid="activate-notification" onClick={activateBubble}>{state.bubble.kind === 'briefing' ? '퇴근 전 할 일' : state.bubble.kind === 'reminder' ? '메모 알림' : '돌멩이와 대화'}</button>}<button type="button" className="bubble-close" aria-label={state.bubble.kind === 'chat' ? 'AI 답변 닫기' : state.bubble.kind === 'chat-loading' ? '생성 상태 접기' : '알림 닫기'} title={state.bubble.kind === 'chat-loading' ? '표시만 접고 답변은 계속 기다려요' : undefined} data-testid="dismiss-notification" disabled={dismissing} onClick={(event) => { event.stopPropagation(); void dismiss(); }}><CloseIcon /></button></div>
+      <div className="bubble-heading"><span className="bubble-dot" />{state.bubble.kind === 'preview' ? <span>알림 미리보기</span> : <button type="button" className="bubble-open" aria-label={state.bubble.kind === 'reminder' || state.bubble.kind === 'briefing' ? '메모 목록 열기' : '대화 창 열기'} title={state.bubble.kind === 'reminder' || state.bubble.kind === 'briefing' ? '메모 목록 열기' : '대화 창 열기'} data-testid="activate-notification" onClick={activateBubble}>{state.bubble.kind === 'briefing' ? '퇴근 전 할 일' : state.bubble.kind === 'reminder' ? '메모 알림' : `${getCharacterDefinition(state.appearance.characterId).label}와 대화`}</button>}<button type="button" className="bubble-close" aria-label={state.bubble.kind === 'chat' ? 'AI 답변 닫기' : state.bubble.kind === 'chat-loading' ? '생성 상태 접기' : '알림 닫기'} title={state.bubble.kind === 'chat-loading' ? '표시만 접고 답변은 계속 기다려요' : undefined} data-testid="dismiss-notification" disabled={dismissing} onClick={(event) => { event.stopPropagation(); void dismiss(); }}><CloseIcon /></button></div>
       {(dismissError || (state.bubble.kind === 'reminder' && state.reminderError)) && <p className="inline-error" role="alert" data-testid={state.bubble.kind === 'reminder' ? 'reminder-error' : 'bubble-error'}>{dismissError || state.reminderError}</p>}
       {state.bubble.kind === 'chat-loading' ? <div className="bubble-thinking"><span className="thinking-dots" aria-hidden="true"><span /><span /><span /></span><span data-testid="chat-loading-status">응답 생성 중…</span><button type="button" className="text-button" data-testid="cancel-bubble-question" disabled={cancelling} onClick={(event) => { event.stopPropagation(); void cancelChat(); }}>{cancelling ? '취소 중' : '취소'}</button></div> : <p tabIndex={state.bubble.kind === 'chat' ? 0 : undefined}>{state.bubble.text}</p>}
     </div>}
@@ -340,7 +350,7 @@ function remainingTime(minutes: number | null): string {
 }
 
 function Panel({ state, companion }: { state: CompanionState; companion: CompanionApi }) {
-  const [tab, setTab] = useState<'work' | 'memos'>(() => state.panelNavigation?.tab || 'work');
+  const [tab, setTab] = useState<PanelTab>(() => state.panelNavigation?.tab || 'work');
   useEffect(() => { if (state.panelNavigation) setTab(state.panelNavigation.tab); }, [state.panelNavigation?.sequence]);
   const [date, setDate] = useState(() => state.workSchedule?.date || localDate());
   const [startTime, setStartTime] = useState(() => state.workSchedule?.startTime || '');
@@ -356,7 +366,8 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
   const savedDate = state.workSchedule?.date;
   const savedStart = state.workSchedule?.startTime;
   const savedEnd = state.workSchedule?.endTime;
-  const hp = Math.floor(Math.max(0, Math.min(100, state.hp)));
+  const hpAppearance = getHpAppearance(state.hp);
+  const hp = hpAppearance.percent;
   const { phase, remainingMinutes, isOvernight } = state.workProgress;
   const progressText = phase === 'unset'
     ? '출근·퇴근 시간을 입력해 주세요.'
@@ -428,7 +439,7 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
     <div className="panel-tabs" role="tablist" aria-label="관리 항목" onKeyDown={(event) => {
       if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
       event.preventDefault();
-      const tabs = ['work', 'memos'] as const;
+      const tabs = ['work', 'memos', 'appearance'] as const;
       const index = tabs.indexOf(tab);
       const next = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[tabs.length - 1] : tabs[(index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
       setTab(next);
@@ -436,6 +447,7 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
     }}>
       <button type="button" role="tab" id="work-tab" aria-controls="work-tabpanel" aria-selected={tab === 'work'} tabIndex={tab === 'work' ? 0 : -1} data-testid="work-tab" onClick={() => setTab('work')}>근무</button>
       <button type="button" role="tab" id="memos-tab" aria-controls="memos-tabpanel" aria-selected={tab === 'memos'} tabIndex={tab === 'memos' ? 0 : -1} data-testid="memos-tab" onClick={() => setTab('memos')}>메모</button>
+      <button type="button" role="tab" id="appearance-tab" aria-controls="appearance-tabpanel" aria-selected={tab === 'appearance'} tabIndex={tab === 'appearance' ? 0 : -1} data-testid="appearance-tab" onClick={() => setTab('appearance')}>캐릭터</button>
     </div>
     <div className="panel-content">
       <div role="tabpanel" id="work-tabpanel" aria-labelledby="work-tab" hidden={tab !== 'work'}>
@@ -453,8 +465,8 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
           {scheduleError && <p className="inline-error" role="alert" data-testid="work-error">{scheduleError}</p>}
         </form>
         <div className="setting-divider" />
-        <div className="hp-label-row"><span className="setting-title">퇴근 HP</span>{scheduleSaved && <span className="saved-indicator" role="status">적용됨</span>}<output data-testid="hp-value">{hp}<small>%</small></output></div>
-        <progress className="work-progress" max="100" value={hp} aria-label="퇴근 HP" data-testid="work-progress-bar">{hp}%</progress>
+        <div className="hp-label-row"><span className="setting-title">퇴근 HP</span>{scheduleSaved && <span className="saved-indicator" role="status">적용됨</span>}<output style={{ color: hpAppearance.textColor }} data-testid="hp-value">{hp}<small>%</small></output></div>
+        <progress className="work-progress" style={{ '--hp-color': hpAppearance.color } as React.CSSProperties} max="100" value={hp} aria-label="퇴근 HP" data-testid="work-progress-bar">{hp}%</progress>
         <p className="work-status" data-testid="work-status">{progressText}</p>
         {savedDate && (savedDate !== localDate() || isOvernight) && <p className="schedule-anchor" data-testid="schedule-anchor">{savedDate !== localDate() ? `${savedDate.replaceAll('-', '.')} 기준` : ''}{isOvernight ? `${savedDate !== localDate() ? ' · ' : ''}다음날 퇴근` : ''}</p>}
       </section>
@@ -478,6 +490,9 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
       <div role="tabpanel" id="memos-tabpanel" aria-labelledby="memos-tab" hidden={tab !== 'memos'}>
         <MemoPanel memos={state.memos} memoError={state.memoError} reminderError={state.reminderError} companion={companion} />
       </div>
+      <div role="tabpanel" id="appearance-tabpanel" aria-labelledby="appearance-tab" hidden={tab !== 'appearance'}>
+        <CharacterSettings settings={state.appearance} error={state.appearanceError} companion={companion} />
+      </div>
     </div>
     <footer className="panel-footer">
       <button type="button" className="hide-button" data-testid="hide-companion" onClick={() => companion.toggleVisibility()}><svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4Z" stroke="currentColor" strokeWidth="1.2" /><path d="m3 13 10-10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>잠시 숨기기</button>
@@ -490,7 +505,7 @@ function App() {
   const { state, error } = useCompanionState();
   if (error) return isWidget ? null : <main className="connection-message" role="alert">{error}</main>;
   if (!state) return isWidget ? null : <main className="connection-message" role="status">작은 동료를 불러오고 있어요…</main>;
-  return isWidget ? <Widget state={state} /> : isChat ? <main className="chat-window" data-testid="companion-chat"><ChatPanel chat={state.chat} companion={api} active={state.chatOpen} shortcut={state.chatShortcut} shortcutRegistered={state.chatShortcutRegistered} shortcutError={state.chatShortcutError} /></main> : <Panel state={state} companion={api} />;
+  return isWidget ? <Widget state={state} /> : isChat ? <main className="chat-window" data-testid="companion-chat"><ChatPanel characterName={getCharacterDefinition(state.appearance.characterId).label} chat={state.chat} companion={api} active={state.chatOpen} shortcut={state.chatShortcut} shortcutRegistered={state.chatShortcutRegistered} shortcutError={state.chatShortcutError} /></main> : <Panel state={state} companion={api} />;
 }
 
 createRoot(document.getElementById('root')!).render(<App />);

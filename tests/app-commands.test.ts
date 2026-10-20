@@ -114,7 +114,7 @@ test('work updates keep an overnight shift date unless the user explicitly suppl
 test('character, screen, briefing and summary commands use only their explicit application ports', () => fixture(h => {
   h.command({ name: 'character.walk', enabled: false }); assert.equal(h.state().walking, false);
   h.command({ name: 'character.walk', enabled: true }); assert.equal(h.state().walking, true);
-  for (const target of ['chat', 'work', 'memos']) { h.command({ name: 'ui.open', target }); assert.equal(h.state().opened, target); }
+  for (const target of ['chat', 'work', 'memos', 'appearance']) { h.command({ name: 'ui.open', target }); assert.equal(h.state().opened, target); }
   h.command({ name: 'briefing.configure', enabled: true, beforeMinutes: 10 });
   assert.deepEqual(h.briefing.settings, { enabled: true, beforeMinutes: 10 });
   h.command({ name: 'memo.add', text: '확인할 일' });
