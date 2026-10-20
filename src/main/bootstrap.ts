@@ -42,6 +42,7 @@ else {
   void app.whenReady().then(() => {
     app.dock?.hide();
     Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: 'Desktop Companion', submenu: [
+      { label: '대화하기', click: () => desktop?.openChat() },
       { label: '패널 열기', click: () => desktop?.openPanel() },
       { label: '캐릭터 숨기기 / 표시', click: () => desktop?.toggleVisibility() },
       { type: 'separator' }, { role: 'quit', label: '종료' },
@@ -50,6 +51,7 @@ else {
     tray = new Tray(trayImage());
     tray.setToolTip('Desktop Companion · 돌멩이');
     tray.setContextMenu(Menu.buildFromTemplate([
+      { label: '대화하기', click: () => desktop?.openChat() },
       { label: '패널 열기', click: () => desktop?.openPanel() },
       { label: '캐릭터 숨기기 / 표시', click: () => desktop?.toggleVisibility() },
       { label: '무음 알림 미리보기', click: () => desktop?.previewNotification() },

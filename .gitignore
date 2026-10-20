@@ -27,6 +27,7 @@ CLAUDE.local.md
 memos*.json
 memos.json.*.tmp
 worktime*.json
+briefing*.json
 worktime.json.*.tmp
 userData/
 .local-data/

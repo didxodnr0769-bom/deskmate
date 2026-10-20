@@ -1,3 +1,5 @@
+import type { ChatState } from './chat';
+export type PanelTab = 'work' | 'memos';
 export type Motion = 'idle' | 'walking' | 'dragged' | 'dropping' | 'notify';
 export interface Point { x: number; y: number }
 export interface Rect extends Point { width: number; height: number }
@@ -11,7 +13,11 @@ export interface WorkProgress {
   isOvernight: boolean;
 }
 export interface CommandResult { ok: boolean; error?: string }
-export interface MemoDraft { text: string; reminderTime: string | null }
+export type MemoSchedule = { kind: 'once'; dueAt: number }
+  | { kind: 'daily'; time: string }
+  | { kind: 'weekly'; time: string; weekdays: number[] };
+export interface BriefingSettings { enabled: boolean; beforeMinutes: number }
+export interface MemoDraft { text: string; reminderTime: string | null; schedule?: MemoSchedule | null }
 export interface Memo extends MemoDraft {
   id: string;
   completed: boolean;
@@ -19,8 +25,16 @@ export interface Memo extends MemoDraft {
   updatedAt: number;
 }
 export type NotificationBubble = { id: string; text: string; kind: 'preview' }
-  | { id: string; text: string; kind: 'reminder'; memoId: string; dueAt: number };
+  | { id: string; text: string; kind: 'reminder'; memoId: string; dueAt: number }
+  | { id: string; text: string; kind: 'chat'; requestId: string }
+  | { id: string; text: string; kind: 'chat-loading'; requestId: string }
+  | { id: string; text: string; kind: 'briefing'; occurrence: string };
 export interface CompanionState {
+  chat: ChatState;
+  chatOpen: boolean;
+  chatShortcut: string;
+  chatShortcutRegistered: boolean;
+  chatShortcutError: string | null;
   motion: Motion;
   direction: 1 | -1;
   hp: number;
@@ -29,10 +43,13 @@ export interface CompanionState {
   memos: Memo[];
   memoError: string | null;
   reminderError: string | null;
+  briefingSettings: BriefingSettings;
+  briefingError: string | null;
   walking: boolean;
   visible: boolean;
   userHidden: boolean;
   panelOpen: boolean;
+  panelNavigation: { tab: PanelTab; sequence: number } | null;
   motionStartedAt: number;
   bubble: NotificationBubble | null;
   displayId: number;
@@ -43,17 +60,28 @@ export interface CompanionState {
 }
 export interface CompanionApi {
   getState(): Promise<CompanionState>;
+  checkAgentConnection(): Promise<CommandResult>;
+  newConversation(): Promise<CommandResult>;
+  openChat(): void;
+  closeChat(): void;
+  onChatFocus(listener: () => void): () => void;
+  setChatShortcut(shortcut: string): Promise<CommandResult>;
+  askQuestion(question: string): Promise<CommandResult>;
+  cancelQuestion(requestId: string): Promise<CommandResult>;
   onState(listener: (state: CompanionState) => void): () => void;
   setHitRegions(regions: HitRegion[]): void;
   beginPointer(point: Point): void;
   movePointer(point: Point): void;
   endPointer(point: Point): void;
   cancelPointer(): void;
-  openPanel(): void;
+  openPanel(tab?: PanelTab): void;
+  showContextMenu(): void;
+  activateBubble(id: string): void;
   closePanel(): void;
   toggleVisibility(): void;
   setWalking(value: boolean): void;
   setWorkSchedule(schedule: WorkSchedule): Promise<CommandResult>;
+  setBriefingSettings(settings: BriefingSettings): Promise<CommandResult>;
   addMemo(draft: MemoDraft): Promise<CommandResult>;
   updateMemo(id: string, draft: MemoDraft): Promise<CommandResult>;
   setMemoCompleted(id: string, completed: boolean): Promise<CommandResult>;
@@ -66,3 +94,6 @@ export interface CompanionApi {
 export const WIDGET_SIZE = { width: 280, height: 300 } as const;
 export const PANEL_SIZE = { width: 360, height: 510 } as const;
 export const DEFAULT_SHORTCUT = 'CommandOrControl+Shift+Space';
+
+export const CHAT_SIZE = { width: 420, height: 600 } as const;
+export const DEFAULT_CHAT_SHORTCUT = 'CommandOrControl+Shift+Return';

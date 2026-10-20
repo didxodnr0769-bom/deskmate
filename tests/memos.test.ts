@@ -39,7 +39,7 @@ test('memo CRUD trims text, generates IDs and timestamps, and persists without t
   assert.equal(memo.updatedAt, memo.createdAt);
   assert.deepEqual(new MemoService(filename).list(), [memo]);
   assert.equal(statSync(filename).mode & 0o777, 0o600);
-  assert.equal(JSON.parse(readFileSync(filename, 'utf8')).version, 3);
+  assert.equal(JSON.parse(readFileSync(filename, 'utf8')).version, 4);
   assert.deepEqual(readdirSync(directory), ['memos.json']);
   service.delete(memo.id);
   assert.deepEqual(service.list(), []);
@@ -126,7 +126,7 @@ test('unknown IDs and invalid completion values never change other memos', () =>
 test('corrupt or unknown-version files remain untouched when loading fails', () => fixture(filename => {
   const memo = storedMemo();
   const invalid = [
-    '{', '', JSON.stringify({ version: 4, memos: [] }), JSON.stringify({ version: 2, memos: {} }),
+    '{', '', JSON.stringify({ version: 5, memos: [] }), JSON.stringify({ version: 2, memos: {} }),
     JSON.stringify({ version: 2, memos: [memo, { ...memo }] }),
     JSON.stringify({ version: 2, memos: [{ ...memo, id: 'invalid-id' }] }),
     JSON.stringify({ version: 2, memos: [{ ...memo, id: `${memo.id}\n` }] }),
@@ -222,7 +222,7 @@ test('v1 calendar reminders load as local HH:mm while preserving metadata and th
   assert.equal(readFileSync(backup, 'utf8'), source);
   assert.equal(statSync(backup).mode & 0o777, 0o600);
   const saved = JSON.parse(readFileSync(filename, 'utf8'));
-  assert.equal(saved.version, 3);
+  assert.equal(saved.version, 4);
   assert.equal(saved.memos[0].reminderTime, '00:15');
   assert.equal(saved.memos[1].reminderTime, null);
   assert.equal(saved.memos.some((memo: Record<string, unknown>) => 'reminderAt' in memo), false);
@@ -242,7 +242,7 @@ test('an existing v1 backup is never overwritten by a later migration', () => fi
   const service = new MemoService(filename);
   service.update(original.id, { text: '본문 수정', reminderTime: '15:00' });
   assert.equal(readFileSync(backup, 'utf8'), previousBackup);
-  assert.equal(JSON.parse(readFileSync(filename, 'utf8')).version, 3);
+  assert.equal(JSON.parse(readFileSync(filename, 'utf8')).version, 4);
   assert.equal(new MemoService(filename).list()[0].text, '본문 수정');
 }));
 
@@ -261,7 +261,7 @@ test('a failed v1 backup prevents migration and keeps both live data and memory 
   rmSync(backup, { recursive: true });
   service.add({ text: '백업 재시도', reminderTime: '12:30' });
   assert.equal(readFileSync(backup, 'utf8'), source);
-  assert.equal(JSON.parse(readFileSync(filename, 'utf8')).version, 3);
+  assert.equal(JSON.parse(readFileSync(filename, 'utf8')).version, 4);
   assert.deepEqual(new MemoService(filename).list(), service.list());
 }));
 

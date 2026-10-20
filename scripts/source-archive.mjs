@@ -14,7 +14,7 @@ export const SOURCE_ENTRIES = Object.freeze([
 
 const codeDirectories = new Set(['src', 'tests', 'scripts']);
 const privateDirectory = /^(?:\.git|\.svn|\.codex|\.claude|\.cursor|\.vscode(?:-.*)?|\.idea|\.agents|\.aws|\.local|node_modules|dist|release|work|outputs|userData|\.local-data|qa(?:[-_].*)?|\.qa.*|logs?|screenshots?|captures?|sessions?|transcripts?|coverage|\.cache|\.tmp|tmp|temp)$/i;
-const privateFile = /^(?:\.env.*|\.npmrc|\.yarnrc(?:\.yml)?|\.pypirc|\.netrc|\.git-credentials|\.DS_Store|\.cursorrules|\.cursorignore|\.claude\.json|(?:AGENTS|CLAUDE)\.local\.md|id_(?:rsa|dsa|ecdsa|ed25519)(?:\.pub)?|authorized_keys|known_hosts|(?:memos|worktime).*\.json(?:\..*)?)$|^(?:credentials?|secrets?|tokens?|service[-_]account|client[-_]secret|oauth[-_]token|auth)(?:[._-][^.]+)*\.(?:json|ya?ml|ini|toml|txt|csv)$|\.local\.(?:json|toml)$|\.(?:code-workspace|log|tmp|pem|key|p8|p12|pfx|jks|keystore|cer|crt|mobileprovision|provisionprofile|sqlite3?|db|har|trace)$/i;
+const privateFile = /^(?:\.env.*|\.npmrc|\.yarnrc(?:\.yml)?|\.pypirc|\.netrc|\.git-credentials|\.DS_Store|\.cursorrules|\.cursorignore|\.claude\.json|(?:AGENTS|CLAUDE)\.local\.md|id_(?:rsa|dsa|ecdsa|ed25519)(?:\.pub)?|authorized_keys|known_hosts|(?:memos|worktime|briefing).*\.json(?:\..*)?)$|^(?:credentials?|secrets?|tokens?|service[-_]account|client[-_]secret|oauth[-_]token|auth)(?:[._-][^.]+)*\.(?:json|ya?ml|ini|toml|txt|csv)$|\.local\.(?:json|toml)$|\.(?:code-workspace|log|tmp|pem|key|p8|p12|pfx|jks|keystore|cer|crt|mobileprovision|provisionprofile|sqlite3?|db|har|trace)$/i;
 
 function isInside(parent, child) {
   const path = relative(parent, child);
