@@ -2,7 +2,7 @@ import { app, BrowserWindow, globalShortcut, ipcMain, Menu, screen, type IpcMain
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_SHORTCUT, DEFAULT_CHAT_SHORTCUT, CHAT_SIZE, PANEL_SIZE, type BriefingSettings, type CommandResult, type CompanionState, type HitRegion, type Motion, type NotificationBubble, type PanelTab, type Point, type Rect } from '../../shared/contracts';
-import { DEFAULT_APPEARANCE, resizedWidgetBounds, sceneLayout, validAppearanceSettings, widgetSize } from '../../shared/appearance';
+import { DEFAULT_APPEARANCE, resizedWidgetBounds, sceneLayout, validAppearanceSettings, usesPetBehavior, widgetSize } from '../../shared/appearance';
 import { PetBehavior } from '../../shared/pet-behavior';
 import { AppearanceService } from '../features/appearance';
 import { advanceRoam, clampBounds, hitTest, nativePosition, panelBounds, sanitizeHitRegions } from '../domain/geometry';
@@ -263,7 +263,7 @@ export class DesktopController {
   }
 
   private syncPetBehavior(now = Date.now()) {
-    if (this.state.appearance.characterId !== 'chelsea') {
+    if (!usesPetBehavior(this.state.appearance.characterId)) {
       this.petBehavior = null;
       delete this.state.pet;
       this.petPaused = false;
@@ -567,7 +567,7 @@ export class DesktopController {
     this.gesture = { start: point, origin: this.widget.getBounds(), dragging: false };
     this.setMotion(this.restingMotion());
     this.setIgnored(false);
-    if (this.state.appearance.characterId === 'chelsea') this.publish();
+    if (usesPetBehavior(this.state.appearance.characterId)) this.publish();
   }
 
   private movePointer(point: Point) {
@@ -630,7 +630,7 @@ export class DesktopController {
     if (!this.state.visible) return;
     if (this.releaseAt !== null) {
       if (now >= this.releaseAt) { this.releaseAt = null; this.cycleStartedAt = now; this.setMotion(this.restingMotion()); }
-    } else if (this.state.appearance.characterId === 'chelsea') {
+    } else if (usesPetBehavior(this.state.appearance.characterId)) {
       const wasPaused = this.petPaused;
       this.syncPetBehavior(now);
       if (wasPaused !== this.petPaused) this.publish();

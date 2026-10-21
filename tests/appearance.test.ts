@@ -47,14 +47,14 @@ test('failed preference replacement preserves memory and removes only its tempor
 
 test('character selection persists independently of size and rejects unknown IDs', () => fixture(filename => {
   const service = new AppearanceService(filename);
-  for (const characterId of ['rock', 'cat', 'rabbit', 'chelsea']) {
+  for (const characterId of ['rock', 'cat', 'rabbit', 'chelsea', 'chuchu']) {
     service.configure({ scale: 1.25, characterId });
     assert.deepEqual(new AppearanceService(filename).settings, { scale: 1.25, characterId });
   }
   const original = readFileSync(filename, 'utf8');
   for (const characterId of ['unknown', '../cat', '__proto__', null]) assert.throws(() => service.configure({ scale: 1.25, characterId }));
   assert.equal(readFileSync(filename, 'utf8'), original);
-  assert.deepEqual(service.settings, { scale: 1.25, characterId: 'chelsea' });
+  assert.deepEqual(service.settings, { scale: 1.25, characterId: 'chuchu' });
 }));
 
 test('an older size-only preference loads as a rock without silently rewriting the original file', () => fixture(filename => {

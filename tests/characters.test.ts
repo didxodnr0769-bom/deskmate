@@ -24,7 +24,7 @@ function contains(points: readonly Point[], x: number, y: number): boolean {
 }
 
 test('built-in characters have distinct stable IDs and valid, non-crossing click silhouettes', () => {
-  assert.equal(new Set([rock, ...addedCharacters].map(character => character.id)).size, 4);
+  assert.equal(new Set([rock, ...addedCharacters].map(character => character.id)).size, 5);
   for (const character of [rock, ...addedCharacters]) {
     const points = character.hitPolygon;
     assert.ok(points.length >= 3 && points.length <= 64, character.id);

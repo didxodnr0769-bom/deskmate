@@ -4,11 +4,16 @@ export const CHARACTER_SCALES = [0.75, 1, 1.25, 1.5] as const;
 export type CharacterScale = typeof CHARACTER_SCALES[number];
 export const CHARACTER_OPTIONS = [
   { id: 'rock', label: '돌멩이' }, { id: 'cat', label: '검은 고양이' }, { id: 'rabbit', label: '크림 토끼' },
-  { id: 'chelsea', label: '첼시' },
+  { id: 'chelsea', label: '첼시' }, { id: 'chuchu', label: '츄츄' },
 ] as const;
 export type CharacterId = typeof CHARACTER_OPTIONS[number]['id'];
 export interface AppearanceSettings { scale: CharacterScale; characterId: CharacterId }
 export const DEFAULT_APPEARANCE: AppearanceSettings = { scale: 1, characterId: 'rock' };
+
+/** Companions whose authored directional frames follow local pet activities. */
+export function usesPetBehavior(characterId: CharacterId): boolean {
+  return characterId === 'chelsea' || characterId === 'chuchu';
+}
 
 export function validAppearanceSettings(value: unknown): value is AppearanceSettings {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;

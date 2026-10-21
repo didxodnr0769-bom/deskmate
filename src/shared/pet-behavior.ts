@@ -36,7 +36,7 @@ const rests = ['idle', 'groom', 'idle', 'stretch', 'idle', 'sleep'] as const;
 const smooth = (amount: number) => amount * amount * (3 - 2 * amount);
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(value, Math.max(min, max)));
 
-/** Plans short, eased trips and quiet cat behaviours independently of native windows. */
+/** Plans short, eased trips and quiet pet behaviours independently of native windows. */
 export class PetBehavior {
   animation: PetAnimationState;
   private journey: Journey | null = null;
