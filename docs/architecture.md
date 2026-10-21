@@ -1,6 +1,6 @@
 # 구조와 구현 범위
 
-이 문서는 0.11.0 소스의 책임 분리와 데이터 계약을 설명합니다. 구현 여부와 실제 환경의 검증 완료 여부는 구분하며, 수행한 점검과 남은 수동 항목은 [검증 안내](verification.md)를 기준으로 확인합니다.
+이 문서는 0.12.0 소스의 책임 분리와 데이터 계약을 설명합니다. 구현 여부와 실제 환경의 검증 완료 여부는 구분하며, 수행한 점검과 남은 수동 항목은 [검증 안내](verification.md)를 기준으로 확인합니다.
 
 ## 현재 프로세스 구조
 
@@ -42,13 +42,13 @@ renderer
 | `src/main/ai/codex.ts` | Codex CLI 검사·실행 옵션·JSONL 결과 변환 |
 | `src/main/ai/prompt.ts` | 대화·명령 지침, 실제 이력·현재 질문·로컬 시각의 분리 |
 | `src/main/ai/process.ts`, `discovery.ts` | 실행 파일 탐색, stdin, 출력·시간 제한, 프로세스 그룹 종료 |
-| `src/shared/pet-behavior.ts` | 첼시의 목적지·가감속·몸돌리기·휴식 행동과 보행 거리 상태 |
-| `src/renderer/characters/chelsea-animation.ts`, `chelsea-sprites.ts` | 로컬 스프라이트 프레임 선택·로딩·투명도 윤곽과 발밑 정렬 |
+| `src/shared/pet-behavior.ts` | 첼시·츄츄의 목적지·가감속·몸돌리기·휴식 행동과 보행 거리 상태 |
+| `src/renderer/characters/pet-animation.ts`, `pet-sprites.ts`, `sprite-pet.ts` | 공통 프레임 선택·자산별 로딩·윤곽·발밑 정렬과 캐릭터 구성 |
 | `src/shared/chat.ts` | Provider와 무관한 대화 상태·메시지·길이 제한 |
 | `src/renderer/ChatPanel.tsx`, `shortcut.ts` | 이력·질문·취소·새 대화, 대화 단축키 설정 |
 | `src/renderer/main.tsx`, `widget-interaction.ts` | 캐릭터·관리 패널, 말풍선 진입, 좌클릭·우클릭·Control+클릭 |
 | `src/renderer/MemoPanel.tsx`, `BriefingSettings.tsx` | 메모·예약 방식 편집, 퇴근 전 요약 설정 |
-| `src/renderer/characters/`, `character-runtime.ts` | 기본 4종 외형·포즈·선택 registry, 공통 장면·HP·클릭 윤곽 |
+| `src/renderer/characters/`, `character-runtime.ts` | 기본 5종 외형·포즈·선택 registry, 공통 장면·HP·클릭 윤곽 |
 | `src/shared/appearance.ts`, `src/main/features/appearance.ts`, `src/renderer/CharacterSettings.tsx` | 선택·크기 계약, 로컬 설정 저장과 패널 UI |
 | `src/preload/index.ts`, `src/shared/contracts.ts` | 제한된 브리지, 상태·요청 형식, 기본 창 크기·단축키 |
 | `scripts/build.mjs`, `package.mjs`, `source-archive.mjs` | 빌드, 호스트 아키텍처 macOS 앱, 공개 소스 ZIP |
@@ -58,11 +58,11 @@ renderer
 
 캐릭터 상태는 `idle`, `walking`, `dragged`, `dropping`, `notify`입니다. 외형을 바꾸면 각 상태의 그림·움직임·클릭 윤곽도 함께 조정합니다. 업무 데이터와 예약 상태는 캐릭터 정의와 독립적입니다.
 
-캐릭터는 작업 영역 안에서 X·Y 방향으로 이동합니다. 돌멩이·검은 고양이·크림 토끼는 두 축의 경계에서 반사됩니다. 첼시는 작업 영역 안의 짧은 목적지를 정하고 몸을 돌린 뒤 가속·감속하며 걷습니다. 다른 모니터로는 드래그해 이동합니다. 놓은 위치를 유지하며 영역을 벗어났을 때만 조정합니다. 280ms의 `dropping`은 포즈 표현이며 창을 바닥으로 옮기지 않습니다. `moveWidget`은 `nativePosition`으로 유한 좌표·반올림·int32 범위·음수 0을 검사합니다.
+캐릭터는 작업 영역 안에서 X·Y 방향으로 이동합니다. 돌멩이·검은 고양이·크림 토끼는 두 축의 경계에서 반사됩니다. 첼시와 츄츄는 작업 영역 안의 짧은 목적지를 정하고 몸을 돌린 뒤 가속·감속하며 걷습니다. 다른 모니터로는 드래그해 이동합니다. 놓은 위치를 유지하며 영역을 벗어났을 때만 조정합니다. 280ms의 `dropping`은 포즈 표현이며 창을 바닥으로 옮기지 않습니다. `moveWidget`은 `nativePosition`으로 유한 좌표·반올림·int32 범위·음수 0을 검사합니다.
 
-첼시의 선택적 `pet` 상태는 `idle/turn/walk/groom/stretch/sleep` 행동·방향·시작 시각·지속 시간·실제 이동 거리·속도를 전달합니다. `fromActivity`로 수면 후 기상을 표현합니다. main이 위치와 행동을 정하고 보행 중 상태는 최대 약 10Hz로 전송합니다. renderer는 전달된 거리와 최대 150ms의 속도 보간으로 발걸음을 재생합니다. 대화·관리 패널·메뉴·알림·숨김·드래그 중에는 이동 계획을 중단하고, 해제 후 현재 위치에서 다시 시작합니다. 이동을 꺼도 휴식 행동은 이어집니다. 이 상태는 저장하거나 AI에 요청하지 않습니다.
+첼시·츄츄의 선택적 `pet` 상태는 `idle/turn/walk/groom/stretch/sleep` 행동·방향·시작 시각·지속 시간·실제 이동 거리·속도를 전달합니다. `fromActivity`로 수면 후 기상을 표현합니다. main이 위치와 행동을 정하고 보행 중 상태는 최대 약 10Hz로 전송합니다. renderer는 전달된 거리와 최대 150ms의 속도 보간으로 발걸음을 재생합니다. 대화·관리 패널·메뉴·알림·숨김·드래그 중에는 이동 계획을 중단하고, 해제 후 현재 위치에서 다시 시작합니다. 이동을 꺼도 휴식 행동은 이어집니다. 이 상태는 저장하거나 AI에 요청하지 않습니다.
 
-첼시의 `chelsea-pet.png`는 로컬 8×8 논리 배열의 투명 스프라이트입니다. 균일한 셀 간격을 가정하지 않고 alpha 연결 성분 64개를 실제 발밑·가로 순서로 분리해 이웃 자세의 픽셀을 제외합니다. 이미지 로드 때 프레임별 alpha 윤곽과 공통 배율을 계산하며, 그리기·클릭 영역·HP 높이는 같은 프레임 선택을 사용합니다. 읽지 못하면 기존 Canvas 외형을 사용합니다. 나머지 캐릭터는 고정 윤곽 계약을 유지합니다.
+첼시의 `chelsea-pet.png`와 츄츄의 `chuchu-pet.png`는 로컬 8×8 논리 배열의 투명 스프라이트입니다. 균일한 셀 간격을 가정하지 않고 alpha 연결 성분 64개를 실제 발밑·가로 순서로 분리해 이웃 자세의 픽셀을 제외합니다. 이미지 로드 때 프레임별 alpha 윤곽과 공통 배율을 계산하며, 그리기·클릭 영역·HP 높이는 같은 프레임 선택을 사용합니다. 자산별 로더 캐시는 분리되어 있으며 하나의 이미지 로딩이 실패해도 다른 캐릭터는 영향을 받지 않습니다. 읽지 못하면 각 캐릭터의 Canvas 대체 외형을 사용합니다. 나머지 캐릭터는 고정 윤곽 계약을 유지합니다.
 
 좌클릭은 대화 창을 열고 실제 드래그는 창을 열지 않습니다. 우클릭·Control+클릭은 네이티브 메뉴에서 대화하기·근무시간·메모로 진입합니다. 메뉴가 열린 동안 이동과 새 알림 표시를 미루며 닫거나 선택한 뒤 대기 항목을 처리합니다. 대상 관리 탭은 `panelNavigation`의 탭과 순번으로 전달해 같은 탭 재진입을 구분하고 입력 초안을 유지합니다.
 
@@ -70,7 +70,7 @@ AI 말풍선은 대화 창, 메모·퇴근 전 요약 말풍선은 메모 탭을
 
 캐릭터 탭이나 우클릭의 **캐릭터 설정**에서 75·100·125·150% 크기를 선택합니다. 캐릭터와 HP는 같은 배율로 그리며 말풍선 글자 크기는 유지합니다. 창·클릭 윤곽·HP·말풍선을 함께 조정하고 화면 경계가 아니면 발밑의 위치를 유지합니다. 작은 화면에서는 실제 배율을 줄이고 말풍선 본문을 스크롤합니다.
 
-`AppearanceService`는 `appearance.json`에 `{ version: 1, settings: { scale, characterId } }`를 권한 `0600`의 임시 파일·이름 변경으로 저장합니다. 기본 배율은 1, 종류는 `rock`입니다. `rock`·`cat`·`rabbit`·`chelsea`를 선택할 수 있고 종류와 크기를 재실행 후에도 유지합니다. 이전 크기 전용 설정은 원본을 바로 교체하지 않고 돌멩이로 읽습니다. 저장 실패는 설정·창을 바꾸지 않고 재시도를 허용합니다. 손상·미지원 파일은 덮어쓰지 않습니다. 설정 변경은 panel main frame만 요청합니다.
+`AppearanceService`는 `appearance.json`에 `{ version: 1, settings: { scale, characterId } }`를 권한 `0600`의 임시 파일·이름 변경으로 저장합니다. 기본 배율은 1, 종류는 `rock`입니다. `rock`·`cat`·`rabbit`·`chelsea`·`chuchu`를 선택할 수 있고 종류와 크기를 재실행 후에도 유지합니다. 이전 크기 전용 설정은 원본을 바로 교체하지 않고 돌멩이로 읽습니다. 저장 실패는 설정·창을 바꾸지 않고 재시도를 허용합니다. 손상·미지원 파일은 덮어쓰지 않습니다. 설정 변경은 panel main frame만 요청합니다.
 
 대화 창은 420×600이며 캐릭터를 따라 이동하지 않습니다. 기본 단축키는 `CommandOrControl+Shift+Return`이고 대화 창 설정에서 바꿉니다. 숨기기 단축키는 `CommandOrControl+Shift+Space`이며 근무 패널에서 바꿉니다. 충돌하면 기존 등록을 유지합니다. 위치·이동·단축키는 실행 중 상태입니다.
 
