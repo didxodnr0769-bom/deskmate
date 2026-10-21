@@ -46,7 +46,7 @@ renderer
 | `src/renderer/ChatPanel.tsx`, `shortcut.ts` | 이력·질문·취소·새 대화, 대화 단축키 설정 |
 | `src/renderer/main.tsx`, `widget-interaction.ts` | 캐릭터·관리 패널, 말풍선 진입, 좌클릭·우클릭·Control+클릭 |
 | `src/renderer/MemoPanel.tsx`, `BriefingSettings.tsx` | 메모·예약 방식 편집, 퇴근 전 요약 설정 |
-| `src/renderer/characters/`, `character-runtime.ts` | 기본 3종 외형·포즈·선택 registry, 공통 장면·HP·클릭 윤곽 |
+| `src/renderer/characters/`, `character-runtime.ts` | 기본 4종 외형·포즈·선택 registry, 공통 장면·HP·클릭 윤곽 |
 | `src/shared/appearance.ts`, `src/main/features/appearance.ts`, `src/renderer/CharacterSettings.tsx` | 선택·크기 계약, 로컬 설정 저장과 패널 UI |
 | `src/preload/index.ts`, `src/shared/contracts.ts` | 제한된 브리지, 상태·요청 형식, 기본 창 크기·단축키 |
 | `scripts/build.mjs`, `package.mjs`, `source-archive.mjs` | 빌드, 호스트 아키텍처 macOS 앱, 공개 소스 ZIP |
@@ -64,7 +64,7 @@ AI 말풍선은 대화 창, 메모·퇴근 전 요약 말풍선은 메모 탭을
 
 캐릭터 탭이나 우클릭의 **캐릭터 설정**에서 75·100·125·150% 크기를 선택합니다. 캐릭터와 HP는 같은 배율로 그리며 말풍선 글자 크기는 유지합니다. 창·클릭 윤곽·HP·말풍선을 함께 조정하고 화면 경계가 아니면 발밑의 위치를 유지합니다. 작은 화면에서는 실제 배율을 줄이고 말풍선 본문을 스크롤합니다.
 
-`AppearanceService`는 `appearance.json`에 `{ version: 1, settings: { scale, characterId } }`를 권한 `0600`의 임시 파일·이름 변경으로 저장합니다. 기본 배율은 1, 종류는 `rock`입니다. `rock`·`cat`·`rabbit`를 선택할 수 있고 종류와 크기를 재실행 후에도 유지합니다. 이전 크기 전용 설정은 원본을 바로 교체하지 않고 돌멩이로 읽습니다. 저장 실패는 설정·창을 바꾸지 않고 재시도를 허용합니다. 손상·미지원 파일은 덮어쓰지 않습니다. 설정 변경은 panel main frame만 요청합니다.
+`AppearanceService`는 `appearance.json`에 `{ version: 1, settings: { scale, characterId } }`를 권한 `0600`의 임시 파일·이름 변경으로 저장합니다. 기본 배율은 1, 종류는 `rock`입니다. `rock`·`cat`·`rabbit`·`chelsea`를 선택할 수 있고 종류와 크기를 재실행 후에도 유지합니다. 이전 크기 전용 설정은 원본을 바로 교체하지 않고 돌멩이로 읽습니다. 저장 실패는 설정·창을 바꾸지 않고 재시도를 허용합니다. 손상·미지원 파일은 덮어쓰지 않습니다. 설정 변경은 panel main frame만 요청합니다.
 
 대화 창은 420×600이며 캐릭터를 따라 이동하지 않습니다. 기본 단축키는 `CommandOrControl+Shift+Return`이고 대화 창 설정에서 바꿉니다. 숨기기 단축키는 `CommandOrControl+Shift+Space`이며 근무 패널에서 바꿉니다. 충돌하면 기존 등록을 유지합니다. 위치·이동·단축키는 실행 중 상태입니다.
 

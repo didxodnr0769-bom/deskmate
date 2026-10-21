@@ -12,12 +12,12 @@ function CharacterPreview({ character }: { character: CharacterDefinition }) {
     const context = canvas?.getContext('2d');
     if (!canvas || !context) return;
     const ratio = window.devicePixelRatio || 1;
-    canvas.width = 84 * ratio; canvas.height = 76 * ratio;
+    canvas.width = 84 * ratio; canvas.height = 60 * ratio;
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
-    context.clearRect(0, 0, 84, 76);
+    context.clearRect(0, 0, 84, 60);
     context.fillStyle = 'rgba(53,66,55,0.10)';
-    context.beginPath(); context.ellipse(42, 71, 27, 3, 0, 0, Math.PI * 2); context.fill();
-    context.translate(40, 70); context.scale(0.75, 0.75);
+    context.beginPath(); context.ellipse(42, 56, 22, 2.5, 0, 0, Math.PI * 2); context.fill();
+    context.translate(40, 55); context.scale(0.6, 0.6);
     character.draw(context, { motion: 'idle', direction: 1, motionStartedAt: 0 } as CompanionState, 0);
   }, [character]);
   return <canvas ref={canvasRef} className="character-preview" aria-hidden="true" />;

@@ -897,3 +897,19 @@ test('switching characters at the same scale preserves notices and history and r
   try { assert.deepEqual(restarted.state().appearance, { scale: 1.25, characterId: 'cat' }); }
   finally { restarted.dispose(); }
 }));
+
+
+test('Chelsea selection survives restart without changing existing memo and work files', () => fixture([memo('existing task', '11:00', localTime(11, 0))], (h, directory) => {
+  assert.equal(h.invoke('work-schedule', { date: '2026-10-20', startTime: '09:00', endTime: '18:00' }).ok, true);
+  h.send('preview-notification'); const bubble = h.state().bubble;
+  const memoFile = readFileSync(h.filename, 'utf8');
+  const workFile = readFileSync(join(directory, 'worktime.json'), 'utf8');
+  assert.equal(h.invoke('appearance', { scale: 1.25, characterId: 'chelsea' }).ok, true);
+  assert.deepEqual(h.state().appearance, { scale: 1.25, characterId: 'chelsea' });
+  assert.deepEqual(h.state().bubble, bubble);
+  assert.equal(readFileSync(h.filename, 'utf8'), memoFile);
+  assert.equal(readFileSync(join(directory, 'worktime.json'), 'utf8'), workFile);
+  const restarted = harness(directory, localTime(10, 5));
+  try { assert.deepEqual(restarted.state().appearance, { scale: 1.25, characterId: 'chelsea' }); }
+  finally { restarted.dispose(); }
+}));

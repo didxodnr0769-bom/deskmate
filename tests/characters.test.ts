@@ -8,7 +8,7 @@ import { CHARACTER_OPTIONS } from '../src/shared/appearance';
 import { BUILT_IN_CHARACTERS, getCharacterDefinition } from '../src/renderer/characters';
 import { rock } from '../src/renderer/characters/rock';
 
-const addedCharacters = [cat, rabbit];
+const addedCharacters = BUILT_IN_CHARACTERS.filter(character => character.id !== 'rock');
 const motions: Motion[] = ['idle', 'walking', 'dragged', 'dropping', 'notify'];
 const epoch = 1_800_000_000_000;
 const state = (motion: Motion, direction: 1 | -1 = 1) => ({
@@ -24,7 +24,7 @@ function contains(points: readonly Point[], x: number, y: number): boolean {
 }
 
 test('built-in characters have distinct stable IDs and valid, non-crossing click silhouettes', () => {
-  assert.equal(new Set([rock, ...addedCharacters].map(character => character.id)).size, 3);
+  assert.equal(new Set([rock, ...addedCharacters].map(character => character.id)).size, 4);
   for (const character of [rock, ...addedCharacters]) {
     const points = character.hitPolygon;
     assert.ok(points.length >= 3 && points.length <= 64, character.id);

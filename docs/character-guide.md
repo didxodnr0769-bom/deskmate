@@ -1,6 +1,6 @@
 # AI Agent로 캐릭터 바꾸기
 
-이 프로젝트 폴더에서 Codex나 Claude Code를 실행하고 원하는 외형을 요청하면, Agent가 캐릭터 소스와 그 외형에 어울리는 동작을 함께 수정하는 방식입니다. 기본 제공 캐릭터는 Canvas 2D로 그린 돌멩이·검은 고양이·크림 토끼이며, 처음에는 돌멩이를 사용합니다. 관리 패널의 **캐릭터** 탭에서 선택할 수 있습니다.
+이 프로젝트 폴더에서 Codex나 Claude Code를 실행하고 원하는 외형을 요청하면, Agent가 캐릭터 소스와 그 외형에 어울리는 동작을 함께 수정하는 방식입니다. 기본 제공 캐릭터는 Canvas 2D로 그린 돌멩이·검은 고양이·크림 토끼·첼시이며, 처음에는 돌멩이를 사용합니다. 관리 패널의 **캐릭터** 탭에서 선택할 수 있습니다.
 
 ## 요청 예시
 
@@ -12,7 +12,7 @@
 
 | 파일 | 역할 |
 | --- | --- |
-| `src/renderer/characters/rock.ts`, `cat.ts`, `rabbit.ts` | 각 외형, 동작별 포즈, 클릭 윤곽과 알림 점프 |
+| `src/renderer/characters/rock.ts`, `cat.ts`, `rabbit.ts`, `chelsea.ts` | 각 외형, 동작별 포즈, 클릭 윤곽과 알림 점프 |
 | `src/renderer/characters/index.ts` | 선택 ID와 캐릭터 정의의 연결 |
 | `src/renderer/character-runtime.ts` | `CharacterDefinition` 계약과 Canvas 장면 렌더링, 공통 HP 표현 |
 | `src/renderer/main.tsx` | 선택한 캐릭터 렌더러 연결, 패널·말풍선 UI |
