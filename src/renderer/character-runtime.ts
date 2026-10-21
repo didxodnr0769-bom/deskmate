@@ -15,6 +15,8 @@ export interface CharacterDefinition {
   label: string;
   notification: { jumpCount: number; jumpDurationMs: number; jumpHeight: number };
   hitPolygon: readonly Point[];
+  prepare?(): Promise<void>;
+  getGeometry?(state: CompanionState, epochNow: number): { polygons: readonly (readonly Point[])[]; hpY?: number };
   getPose(state: CompanionState, epochNow: number): CharacterPose;
   draw(context: CanvasRenderingContext2D, state: CompanionState, epochNow: number): void;
 }
@@ -23,6 +25,7 @@ export interface CharacterFrame {
   pose: CharacterPose;
   origin: Point;
   polygon: Point[];
+  polygons: Point[][];
   hp: Rect;
 }
 
@@ -37,12 +40,13 @@ export function getCharacterFrame(
   const origin = { x: 140 + pose.x, y: 266 + pose.y };
   const cos = Math.cos(pose.rotation);
   const sin = Math.sin(pose.rotation);
-  const polygon = character.hitPolygon.map((point) => {
+  const geometry = character.getGeometry?.(state, epochNow);
+  const polygons = (geometry?.polygons ?? [character.hitPolygon]).map(points => points.map((point) => {
     const x = point.x * pose.scaleX;
     const y = point.y * pose.scaleY;
     return { x: origin.x + x * cos - y * sin, y: origin.y + x * sin + y * cos };
-  });
-  return { pose, origin, polygon, hp: { x: 71 + pose.x, y: 171 + pose.y, width: 138, height: 17 } };
+  }));
+  return { pose, origin, polygon: polygons[0] ?? [], polygons, hp: { x: 71 + pose.x, y: origin.y + (geometry?.hpY ?? -95), width: 138, height: 17 } };
 }
 
 function roundedRect(context: CanvasRenderingContext2D, rect: Rect, radius: number): void {

@@ -1,0 +1,26 @@
+Built-in image generation tool. The reference photos are private identity references and are not shipped with this project.
+
+INITIAL ATLAS PROMPT
+
+Use case: stylized-concept.
+Asset type: production 2D desktop pet animation sprite atlas on a truly transparent background.
+Reference images are ONLY identity references for Chelsea, the same fluffy silver-gray long-haired tabby cat. Preserve olive yellow-green eyes, charcoal forehead M and cheek stripes, broad white nose blaze and white muzzle, white chest and white paws, dark gray fluffy striped tail, and the distinctive nose partly pale pink and partly black. Draw a charming polished soft 2D illustrated cat with credible feline anatomy, visible four legs in side view, plush fur, readable expressive face. Not a stone-shaped blob, not photorealistic, not pixel art.
+Produce ONE square 2048x2048 PNG sprite sheet arranged EXACTLY as 8 equal columns by 8 equal rows, 64 individual animation frames. Each cell is 256x256. NO grid lines, labels, text, numbers, panels, decorative elements or scenery. Genuine transparent alpha everywhere outside cats; NO white/gray/checkerboard painted backdrop, NO ground shadows.
+Each of the 64 cells must contain exactly one whole cat, centered, same physical cat size across frames. Feet/ground line at y=224 in EACH cell, no paws/tail/ears clipped, keep all pixels safely inside its cell with 18px transparent margins. Standing/sitting cat height about180px, side-walking cat body wider than front cat, sleeping cat naturally lower but same body proportions. No camera zoom. Stable head/body volume, markings, nose asymmetry and lighting across all frames. Arrange frames left-to-right per row:
+ROW1: front-facing seated idle loop: neutral, eyes soften, slow blink closed, reopen, glance left, neutral, glance right, neutral, very slight ears and tail motion.
+ROW2: TRUE LEFT SIDE VIEW walking to left, all eight sequential distinct phases of a smooth in-place feline four-legged walk cycle. Head always points left, torso horizontal, paws lift and plant alternately, tail gently trails right. Cat does not travel inside cell.
+ROW3: TRUE RIGHT SIDE VIEW walking to right, all eight sequential distinct phases of a smooth in-place four-legged walk cycle. Head always points right, torso horizontal, paws alternate, tail trails left. Preserve asymmetric markings anatomically.
+ROW4: turning poses: columns1-4 front seated -> slight left turn -> left three-quarter -> left side standing; columns5-8 front seated -> slight right turn -> right three-quarter -> right side standing. Distinct head and body turning, no flattened silhouette.
+ROW5: front-facing seated grooming sequence: seated neutral -> lift one front paw -> lick paw -> lick paw -> wipe paw across cheek -> wipe ear -> lower paw -> seated neutral.
+ROW6: stretching sequence: front seated neutral -> turn three-quarter -> stand -> lower forequarters and extend front paws -> deep feline bow with hips raised -> begin rise -> turn back -> front seated neutral.
+ROW7: sleep sequence: front seated neutral -> tuck front paws -> lower body -> curl up -> curled eyes closing -> sleeping curled -> sleeping curled breathing in -> sleeping curled breathing out. Fluffy tail wraps around body.
+ROW8: interaction poses: columns1-2 front alert with ears perked/head raised then relaxed; columns3-4 front thinking with head tilted left then right; columns5-6 lifted gently/dangling body with all four paws hanging, relaxed ears; columns7-8 landing low crouch then seated upright.
+High visual consistency and technically exact evenly-spaced 8x8 grid are essential for animation. Soft charcoal outlines, silver cool grays and creamy whites, no accessories, no collar, no props.
+
+ATLAS CLEANUP PROMPT
+
+Edit this 8 columns by 8 rows cat animation sprite atlas. Keep the same silver tabby Chelsea design, all 64 poses, exact row and column positions and ordering.
+Essential production cleanup: remove ALL stray red pixels and ALL white stippled halos or debris outside the cat silhouettes. Every pixel outside each actual cat must be truly transparent, with clean antialiased fur edges. NO colored matte, no red/white fringe, no background checkerboard or painted backdrop, no ground shadows.
+Keep all 64 whole cats separate and safely INSIDE their own evenly spaced grid cell. Reduce all cats uniformly by about 12% within their cells so long walking tails and noses cannot cross cell boundaries. Keep the same physical cat size and aligned ground line in all frames, with transparent padding around every cell. The final image remains a square 8x8 atlas, ideally 2048x2048.
+Also correct ROW4 columns6,7,8 (counting from1): they must turn toward the RIGHT. ROW4 columns5-8 should progress front seated -> slight right turn -> right three-quarter -> TRUE RIGHT SIDE VIEW standing, nose pointing right and tail left. All other rows and poses preserve.
+Cat identity: fluffy silver-gray longhair tabby, yellow-green eyes, forehead M, white nose blaze/muzzle/chest/paws, gray striped tail, partly pink partly black nose. No text, no grid lines, no props.

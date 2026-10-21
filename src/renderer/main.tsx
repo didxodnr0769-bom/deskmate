@@ -56,7 +56,8 @@ function Widget({ state }: { state: CompanionState }) {
   const stateRef = useRef(state);
   const dragging = useRef<number | null>(null);
   const captureTarget = useRef<HTMLElement | null>(null);
-  const characterPolygon = useRef<Point[]>([]);
+  const characterPolygons = useRef<Point[][]>([]);
+  const overCharacter = (point: Point) => characterPolygons.current.some(polygon => insideCharacter(point, polygon));
   const contextMenuShown = useRef(false);
   const bubbleActivationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bubbleGesture = useRef<{ id: string; pointerId: number; x: number; y: number; moved: boolean; hadSelection: boolean } | null>(null);
@@ -166,7 +167,7 @@ function Widget({ state }: { state: CompanionState }) {
 
   useEffect(() => {
     if (!state.visible) {
-      characterPolygon.current = [];
+      characterPolygons.current = [];
       api.setHitRegions([]);
       return;
     }
@@ -215,9 +216,9 @@ function Widget({ state }: { state: CompanionState }) {
         const scaleX = bounds.width / SCENE_SIZE.width;
         const scaleY = bounds.height / SCENE_SIZE.height;
         const round = (value: number) => Math.round(value * 2) / 2;
-        characterPolygon.current = frame.polygon.map((p) => ({ x: round(bounds.left + p.x * scaleX), y: round(bounds.top + p.y * scaleY) }));
+        characterPolygons.current = frame.polygons.map(polygon => polygon.map((p) => ({ x: round(bounds.left + p.x * scaleX), y: round(bounds.top + p.y * scaleY) })));
         const regions: HitRegion[] = [
-          { type: 'polygon', points: characterPolygon.current },
+          ...characterPolygons.current.map(points => ({ type: 'polygon' as const, points })),
           { type: 'rect', rect: { x: round(bounds.left + frame.hp.x * scaleX), y: round(bounds.top + (frame.hp.y - 16) * scaleY), width: round(frame.hp.width * scaleX), height: round((frame.hp.height + 16) * scaleY) } },
         ];
         if (bubbleRef.current && current.bubble) {
@@ -239,7 +240,7 @@ function Widget({ state }: { state: CompanionState }) {
       cancelAnimationFrame(frameId);
       resizeObserver.disconnect();
       window.removeEventListener('resize', markDirty);
-      characterPolygon.current = [];
+      characterPolygons.current = [];
       api.setHitRegions([]);
     };
   }, [state.visible, state.appearance.scale, state.appearance.characterId]);
@@ -257,7 +258,7 @@ function Widget({ state }: { state: CompanionState }) {
     onContextMenu={(event) => {
       event.preventDefault();
       if (contextMenuShown.current) { contextMenuShown.current = false; return; }
-      if (!insideCharacter({ x: event.clientX, y: event.clientY }, characterPolygon.current)) return;
+      if (!overCharacter({ x: event.clientX, y: event.clientY })) return;
       finishGesture(null);
       api.showContextMenu();
     }}
@@ -266,7 +267,7 @@ function Widget({ state }: { state: CompanionState }) {
       if (event.button !== 0) return;
       if (event.ctrlKey) {
         event.preventDefault();
-        if (insideCharacter({ x: event.clientX, y: event.clientY }, characterPolygon.current)) {
+        if (overCharacter({ x: event.clientX, y: event.clientY })) {
           finishGesture(null);
           contextMenuShown.current = true;
           api.showContextMenu();
