@@ -913,3 +913,103 @@ test('Chelsea selection survives restart without changing existing memo and work
   try { assert.deepEqual(restarted.state().appearance, { scale: 1.25, characterId: 'chelsea' }); }
   finally { restarted.dispose(); }
 }));
+
+function walkChelsea(h: Harness) {
+  let sawTurn = false;
+  for (let i = 0; i < 300; i += 1) {
+    h.tick(50);
+    if (h.state().pet?.activity === 'turn') sawTurn = true;
+    if (h.state().pet?.activity === 'walk') {
+      assert.ok(sawTurn, 'a pet turns before it starts translating');
+      h.tick(250);
+      return;
+    }
+  }
+  assert.fail('Chelsea did not begin walking');
+}
+
+test('Chelsea pauses for chat, menus, panels and reminders, then resumes from the same position', () => fixture([], h => {
+  assert.equal(h.invoke('appearance', { scale: 1, characterId: 'chelsea' }).ok, true);
+  walkChelsea(h);
+  h.send('chat-open');
+  const chatPosition = h.controller.widget.getBounds();
+  for (let i = 0; i < 100; i += 1) h.tick(50);
+  assert.deepEqual(h.controller.widget.getBounds(), chatPosition);
+  assert.equal(h.state().motion, 'idle');
+  assert.equal(h.state().pet?.activity, 'idle');
+  assert.equal(h.state().pet?.speed, 0);
+  h.send('chat-close', undefined, 'chat');
+  h.tick(50);
+  assert.deepEqual(h.controller.widget.getBounds(), chatPosition);
+  walkChelsea(h);
+  h.send('context-menu');
+  const menuPosition = h.controller.widget.getBounds();
+  for (let i = 0; i < 100; i += 1) h.tick(50);
+  assert.deepEqual(h.controller.widget.getBounds(), menuPosition);
+  assert.equal(h.state().pet?.activity, 'idle');
+  h.menus.at(-1)!.closePopup();
+  h.tick(50);
+  assert.deepEqual(h.controller.widget.getBounds(), menuPosition);
+  walkChelsea(h);
+  h.send('panel-open', 'memos');
+  const panelPosition = h.controller.widget.getBounds();
+  for (let i = 0; i < 100; i += 1) h.tick(50);
+  assert.deepEqual(h.controller.widget.getBounds(), panelPosition);
+  assert.equal(h.state().pet?.activity, 'idle');
+  h.send('panel-close');
+  walkChelsea(h);
+  h.send('preview-notification');
+  const alertPosition = h.controller.widget.getBounds();
+  for (let i = 0; i < 100; i += 1) h.tick(50);
+  assert.deepEqual(h.controller.widget.getBounds(), alertPosition);
+  assert.equal(h.state().motion, 'notify');
+  assert.equal(h.state().pet?.speed, 0);
+  close(h, h.state().bubble!.id);
+  h.tick(50);
+  assert.deepEqual(h.controller.widget.getBounds(), alertPosition);
+}));
+
+test('Chelsea keeps the drop height, stops actual travel when disabled, and leaves legacy motion unchanged', () => fixture([], h => {
+  h.invoke('appearance', { scale: 1.25, characterId: 'chelsea' });
+  walkChelsea(h);
+  h.send('pointer-begin', { x: 1_300, y: 500 });
+  h.send('pointer-end', { x: 1_400, y: 400 });
+  const dropped = h.controller.widget.getBounds();
+  assert.equal(h.state().motion, 'dropping');
+  for (let i = 0; i < 20; i += 1) h.tick(50);
+  assert.deepEqual(h.controller.widget.getBounds(), dropped);
+  assert.ok(dropped.y < 1_080 - dropped.height, 'there is no snap back to the display floor');
+  h.send('walking', false, 'panel');
+  const stationary = h.controller.widget.getBounds();
+  const activities = new Set<string>();
+  for (let i = 0; i < 1_500; i += 1) { h.tick(50); activities.add(h.state().pet!.activity); }
+  assert.deepEqual(h.controller.widget.getBounds(), stationary);
+  assert.ok(activities.has('groom') && activities.has('stretch') && activities.has('sleep'));
+  h.invoke('appearance', { scale: 1.25, characterId: 'rock' });
+  assert.equal(h.state().pet, undefined);
+  h.send('walking', true, 'panel');
+  const beforeLegacy = h.controller.widget.getBounds();
+  h.tick(2_500);
+  assert.equal(h.state().motion, 'walking');
+  assert.notDeepEqual(h.controller.widget.getBounds(), beforeLegacy);
+}));
+
+test('Chelsea snapshots publish gait updates at a bounded rate and survive a suspended clock without jumping', () => fixture([], h => {
+  h.invoke('appearance', { scale: 1, characterId: 'chelsea' });
+  walkChelsea(h);
+  const sent = h.controller.widget.webContents.messages.length;
+  let distance = h.state().pet!.distance;
+  for (let i = 0; i < 30; i += 1) {
+    h.tick(1_000 / 30);
+    const pet = h.state().pet!;
+    assert.ok(pet.distance >= distance);
+    distance = pet.distance;
+  }
+  assert.ok(h.controller.widget.webContents.messages.length - sent <= 11, 'walking does not send full app state at every render frame');
+  const beforeSuspend = h.controller.widget.getBounds();
+  h.tick(60_000);
+  assert.deepEqual(h.controller.widget.getBounds(), beforeSuspend);
+  assert.equal(h.state().pet?.activity, 'idle');
+  assert.equal(h.state().pet?.distance, 0);
+  assert.equal(h.state().pet?.speed, 0);
+}));

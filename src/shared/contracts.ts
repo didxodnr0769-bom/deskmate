@@ -1,4 +1,5 @@
 import type { AppearanceSettings } from './appearance';
+import type { PetAnimationState } from './pet-behavior';
 import type { ChatState } from './chat';
 export type PanelTab = 'work' | 'memos' | 'appearance';
 export type Motion = 'idle' | 'walking' | 'dragged' | 'dropping' | 'notify';
@@ -39,6 +40,7 @@ export interface CompanionState {
   chatShortcutRegistered: boolean;
   chatShortcutError: string | null;
   motion: Motion;
+  pet?: PetAnimationState;
   direction: 1 | -1;
   hp: number;
   workSchedule: WorkSchedule | null;

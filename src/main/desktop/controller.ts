@@ -2,7 +2,8 @@ import { app, BrowserWindow, globalShortcut, ipcMain, Menu, screen, type IpcMain
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_SHORTCUT, DEFAULT_CHAT_SHORTCUT, CHAT_SIZE, PANEL_SIZE, type BriefingSettings, type CommandResult, type CompanionState, type HitRegion, type Motion, type NotificationBubble, type PanelTab, type Point, type Rect } from '../../shared/contracts';
-import { DEFAULT_APPEARANCE, resizedWidgetBounds, validAppearanceSettings, widgetSize } from '../../shared/appearance';
+import { DEFAULT_APPEARANCE, resizedWidgetBounds, sceneLayout, validAppearanceSettings, widgetSize } from '../../shared/appearance';
+import { PetBehavior } from '../../shared/pet-behavior';
 import { AppearanceService } from '../features/appearance';
 import { advanceRoam, clampBounds, hitTest, nativePosition, panelBounds, sanitizeHitRegions } from '../domain/geometry';
 import { getWorkProgress, validateWorkSchedule } from '../domain/worktime';
@@ -31,6 +32,9 @@ export class DesktopController {
   private temporaryAlert = false;
   private position: Point = { x: 0, y: 0 };
   private velocity: Point = { x: 30, y: 18 };
+  private petBehavior: PetBehavior | null = null;
+  private petPaused = false;
+  private lastPetPublish = 0;
   private readonly worktimeFile = join(app.getPath('userData'), 'worktime.json');
   private memoService: MemoService | null = null;
   private briefingService: WorkBriefingService | null = null;
@@ -213,6 +217,7 @@ export class DesktopController {
 
   private setWalking(enabled: boolean) {
     this.state.walking = enabled;
+    this.petBehavior?.reset(Date.now(), this.state.direction);
     this.setMotion(this.restingMotion());
     this.cycleStartedAt = Date.now();
     this.publish();
@@ -243,6 +248,7 @@ export class DesktopController {
     const bounds = resizedWidgetBounds(this.widget.getBounds(), oldScale, this.state.appearance.scale, this.currentDisplay().workArea);
     this.widget.setBounds(bounds);
     this.position = { x: bounds.x, y: bounds.y };
+    this.petBehavior = null;
     // Never use an old silhouette while the renderer applies a different scale.
     this.regions = [];
     this.setIgnored(true);
@@ -251,7 +257,31 @@ export class DesktopController {
     return { ok: true };
   }
 
+  private petIsPaused(): boolean {
+    return !!(this.contextMenu || this.gesture || this.releaseAt !== null || this.state.panelOpen
+      || this.state.chatOpen || this.state.bubble || !this.state.visible);
+  }
+
+  private syncPetBehavior(now = Date.now()) {
+    if (this.state.appearance.characterId !== 'chelsea') {
+      this.petBehavior = null;
+      delete this.state.pet;
+      this.petPaused = false;
+      return;
+    }
+    const paused = this.petIsPaused();
+    if (!this.petBehavior) this.petBehavior = new PetBehavior(now, this.state.direction);
+    else if (paused !== this.petPaused) this.petBehavior.reset(now, this.state.direction);
+    this.petPaused = paused;
+    this.state.pet = { ...this.petBehavior.animation };
+    if (paused && this.state.motion === 'walking') {
+      this.state.motion = this.restingMotion();
+      this.state.motionStartedAt = now;
+    }
+  }
+
   private publish() {
+    this.syncPetBehavior();
     for (const win of [this.widget, this.panel, this.chat]) {
       if (!win.isDestroyed() && !win.webContents.isLoadingMainFrame()) win.webContents.send('companion:state', this.state);
     }
@@ -280,6 +310,7 @@ export class DesktopController {
     const bounds = resizedWidgetBounds(this.widget.getBounds(), this.state.appearance.scale, this.state.appearance.scale, this.currentDisplay().workArea);
     this.widget.setBounds(bounds);
     this.position = { x: bounds.x, y: bounds.y };
+    this.petBehavior = null;
     this.positionPanel();
     const chatBounds = this.chat.getBounds();
     this.chat.setBounds(clampBounds(chatBounds, screen.getDisplayMatching(chatBounds).workArea));
@@ -536,6 +567,7 @@ export class DesktopController {
     this.gesture = { start: point, origin: this.widget.getBounds(), dragging: false };
     this.setMotion(this.restingMotion());
     this.setIgnored(false);
+    if (this.state.appearance.characterId === 'chelsea') this.publish();
   }
 
   private movePointer(point: Point) {
@@ -598,6 +630,29 @@ export class DesktopController {
     if (!this.state.visible) return;
     if (this.releaseAt !== null) {
       if (now >= this.releaseAt) { this.releaseAt = null; this.cycleStartedAt = now; this.setMotion(this.restingMotion()); }
+    } else if (this.state.appearance.characterId === 'chelsea') {
+      const wasPaused = this.petPaused;
+      this.syncPetBehavior(now);
+      if (wasPaused !== this.petPaused) this.publish();
+      if (!this.petPaused && this.petBehavior) {
+        const next = this.petBehavior.advance({ now, seconds: delta, position: this.position,
+          bounds: this.widget.getBounds(), workArea: this.currentDisplay().workArea,
+          scale: sceneLayout(this.state.appearance.scale, this.widget.getBounds().width, this.widget.getBounds().height).scale,
+          allowMovement: this.state.walking });
+        this.state.pet = { ...next.animation };
+        this.position = next.position;
+        if (next.animation.activity === 'walk' || this.state.motion === 'walking') this.moveWidget(next.position);
+        const directionChanged = this.state.direction !== next.animation.facing;
+        this.state.direction = next.animation.facing;
+        const motion = next.animation.activity === 'walk' ? 'walking' : 'idle';
+        const motionChanged = this.state.motion !== motion;
+        if (motionChanged) { this.state.motion = motion; this.state.motionStartedAt = now; }
+        if (next.transitioned || directionChanged || motionChanged
+          || (next.animation.activity === 'walk' && now - this.lastPetPublish >= 100)) {
+          this.lastPetPublish = now;
+          this.publish();
+        }
+      }
     } else if (!this.contextMenu && !this.gesture && !this.state.panelOpen && !this.state.bubble && this.state.walking) {
       const active = (now - this.cycleStartedAt) % 11000 > 1800;
       this.setMotion(active ? 'walking' : 'idle');
