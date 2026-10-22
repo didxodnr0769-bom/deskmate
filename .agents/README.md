@@ -1,7 +1,10 @@
 # DeskMate Agent 작업 허브
 
+주요 사용 흐름은 clone한 소스를 각자의 코딩 Agent로 수정하고 검증·실행하는 것입니다. 기본 앱의 기능은 확장을 위한 출발점입니다.
+
 공유 문서의 기준은 `README.md`와 `docs/`입니다. 이 허브에 기능 명세를 중복 관리하지 않습니다.
 
+- `docs/customization.md`: clone·Agent 프로젝트 열기·첫 요청·기능/캐릭터 추가와 검증
 - `docs/architecture.md`: 현재 구현과 후속 기능의 경계
 - `docs/character-guide.md`: 캐릭터 수정 위치와 보존할 계약
 - `docs/agent-provider-guide.md`: 앱 내 AI 대화 연결의 책임 분리

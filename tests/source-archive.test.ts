@@ -15,7 +15,7 @@ const sharedFiles = [
   'docs/verification.md', '.agents/README.md', 'AGENTS.md', 'CLAUDE.md', 'README.md',
   'package.json', 'package-lock.json', 'LICENSE', 'THIRD_PARTY_NOTICES.md',
   '.gitignore', '.nvmrc', 'tsconfig.json', 'vite.config.ts', 'index.html',
-  'docs/usage.md', 'docs/assets.md', 'docs/security.md',
+  'docs/usage.md', 'docs/assets.md', 'docs/security.md', 'docs/customization.md',
   'docs/images/companion.png', 'docs/images/memos.png', 'docs/images/chat.png', 'docs/images/settings.png',
 ];
 const codeFiles = [
