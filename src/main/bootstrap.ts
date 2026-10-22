@@ -44,6 +44,7 @@ else {
     Menu.setApplicationMenu(Menu.buildFromTemplate([{ label: 'Desktop Companion', submenu: [
       { label: '대화하기', click: () => desktop?.openChat() },
       { label: '패널 열기', click: () => desktop?.openPanel() },
+      { label: '설정', click: () => desktop?.openPanel('settings') },
       { label: '캐릭터 숨기기 / 표시', click: () => desktop?.toggleVisibility() },
       { type: 'separator' }, { role: 'quit', label: '종료' },
     ] }, { role: 'editMenu' }]));
@@ -54,7 +55,7 @@ else {
       { label: '대화하기', click: () => desktop?.openChat() },
       { label: '패널 열기', click: () => desktop?.openPanel() },
       { label: '캐릭터 숨기기 / 표시', click: () => desktop?.toggleVisibility() },
-      { label: '무음 알림 미리보기', click: () => desktop?.previewNotification() },
+      { label: '설정', click: () => desktop?.openPanel('settings') },
       { type: 'separator' }, { label: '종료', click: () => app.quit() },
     ]));
     powerMonitor.on('resume', () => desktop?.onResume());

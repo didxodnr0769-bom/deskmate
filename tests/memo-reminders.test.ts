@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, readdirSync, renameSync, mkdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MemoService } from '../src/main/features/memos';
+import { localMemoDate } from '../src/shared/memo-date';
 
 const at = (day: number, hour: number, minute = 0, second = 0) => new Date(2026, 9, day, hour, minute, second).getTime();
 function fixture(run: (filename: string, setNow: (value: number) => void, open: () => MemoService) => void) {
@@ -158,7 +159,7 @@ test('failed v2 backup blocks delivery and preserves bytes and reservations unti
   const service = open();
   assert.throws(() => service.getDueReminders(), /저장/);
   assert.equal(readFileSync(filename, 'utf8'), source);
-  assert.deepEqual(service.list(), [memo]);
+  assert.deepEqual(service.list(), [{ ...memo, date: localMemoDate(memo.createdAt) }]);
   rmSync(backup, { recursive: true });
   setNow(at(21, 15));
   assert.equal(service.getDueReminders()[0].dueAt, at(20, 14));

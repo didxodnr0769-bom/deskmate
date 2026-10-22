@@ -84,3 +84,13 @@ test('app planning instructions preserve conversation isolation and require one 
   assert.match(APP_COMMAND_INSTRUCTIONS, /0은 일요일, 1은 월요일, 6은 토요일/);
   assert.doesNotMatch(CHAT_INSTRUCTIONS, /memo\.add|briefing\.configure|kind.*command/);
 });
+
+
+test('planning uses calendar-scoped memo commands and cannot offer removed automatic notices', () => {
+  assert.match(APP_COMMAND_INSTRUCTIONS, /memo.list:.*date.*YYYY-MM-DD/);
+  assert.match(APP_COMMAND_INSTRUCTIONS, /생략은 오늘/);
+  assert.match(APP_COMMAND_INSTRUCTIONS, /과거 메모는 사용자가 그 날짜를 명시/);
+  assert.match(APP_COMMAND_INSTRUCTIONS, /target:.*settings/);
+  assert.doesNotMatch(APP_COMMAND_INSTRUCTIONS, /briefing.configure:/);
+  assert.match(APP_COMMAND_INSTRUCTIONS, /퇴근 전 할 일 알림과 알림 미리보기 기능은 제공하지 않습니다/);
+});

@@ -1,6 +1,7 @@
 import type { AppearanceSettings } from './appearance';
+import type { PetAnimationState } from './pet-behavior';
 import type { ChatState } from './chat';
-export type PanelTab = 'work' | 'memos' | 'appearance';
+export type PanelTab = 'work' | 'memos' | 'appearance' | 'settings';
 export type Motion = 'idle' | 'walking' | 'dragged' | 'dropping' | 'notify';
 export interface Point { x: number; y: number }
 export interface Rect extends Point { width: number; height: number }
@@ -17,19 +18,17 @@ export interface CommandResult { ok: boolean; error?: string }
 export type MemoSchedule = { kind: 'once'; dueAt: number }
   | { kind: 'daily'; time: string }
   | { kind: 'weekly'; time: string; weekdays: number[] };
-export interface BriefingSettings { enabled: boolean; beforeMinutes: number }
-export interface MemoDraft { text: string; reminderTime: string | null; schedule?: MemoSchedule | null }
+export interface MemoDraft { text: string; reminderTime: string | null; schedule?: MemoSchedule | null; date?: string }
 export interface Memo extends MemoDraft {
+  date: string;
   id: string;
   completed: boolean;
   createdAt: number;
   updatedAt: number;
 }
-export type NotificationBubble = { id: string; text: string; kind: 'preview' }
-  | { id: string; text: string; kind: 'reminder'; memoId: string; dueAt: number }
+export type NotificationBubble = { id: string; text: string; kind: 'reminder'; memoId: string; dueAt: number }
   | { id: string; text: string; kind: 'chat'; requestId: string }
-  | { id: string; text: string; kind: 'chat-loading'; requestId: string }
-  | { id: string; text: string; kind: 'briefing'; occurrence: string };
+  | { id: string; text: string; kind: 'chat-loading'; requestId: string };
 export interface CompanionState {
   appearance: AppearanceSettings;
   appearanceError: string | null;
@@ -39,6 +38,7 @@ export interface CompanionState {
   chatShortcutRegistered: boolean;
   chatShortcutError: string | null;
   motion: Motion;
+  pet?: PetAnimationState;
   direction: 1 | -1;
   hp: number;
   workSchedule: WorkSchedule | null;
@@ -46,13 +46,11 @@ export interface CompanionState {
   memos: Memo[];
   memoError: string | null;
   reminderError: string | null;
-  briefingSettings: BriefingSettings;
-  briefingError: string | null;
   walking: boolean;
   visible: boolean;
   userHidden: boolean;
   panelOpen: boolean;
-  panelNavigation: { tab: PanelTab; sequence: number } | null;
+  panelNavigation: { tab: PanelTab; sequence: number; memoDate?: string } | null;
   motionStartedAt: number;
   bubble: NotificationBubble | null;
   displayId: number;
@@ -68,7 +66,6 @@ export interface CompanionApi {
   openChat(): void;
   closeChat(): void;
   onChatFocus(listener: () => void): () => void;
-  setChatShortcut(shortcut: string): Promise<CommandResult>;
   askQuestion(question: string): Promise<CommandResult>;
   cancelQuestion(requestId: string): Promise<CommandResult>;
   onState(listener: (state: CompanionState) => void): () => void;
@@ -85,12 +82,10 @@ export interface CompanionApi {
   setWalking(value: boolean): void;
   setWorkSchedule(schedule: WorkSchedule): Promise<CommandResult>;
   setAppearance(settings: AppearanceSettings): Promise<CommandResult>;
-  setBriefingSettings(settings: BriefingSettings): Promise<CommandResult>;
   addMemo(draft: MemoDraft): Promise<CommandResult>;
   updateMemo(id: string, draft: MemoDraft): Promise<CommandResult>;
   setMemoCompleted(id: string, completed: boolean): Promise<CommandResult>;
   deleteMemo(id: string): Promise<CommandResult>;
-  previewNotification(): void;
   dismissBubble(id: string): Promise<CommandResult>;
   setShortcut(shortcut: string): Promise<{ ok: boolean; error?: string }>;
   quit(): void;

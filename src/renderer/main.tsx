@@ -7,9 +7,8 @@ import { CharacterSettings } from './CharacterSettings';
 import { getCharacterDefinition } from './characters';
 import { getHpAppearance } from './hp-colors';
 import { MemoPanel } from './MemoPanel';
-import { BriefingSettings } from './BriefingSettings';
+import { SettingsPanel } from './SettingsPanel';
 import { ChatPanel } from './ChatPanel';
-import { displayShortcut, shortcutFromEvent } from './shortcut';
 import { insideCharacter } from './widget-interaction';
 import './styles.css';
 
@@ -56,7 +55,8 @@ function Widget({ state }: { state: CompanionState }) {
   const stateRef = useRef(state);
   const dragging = useRef<number | null>(null);
   const captureTarget = useRef<HTMLElement | null>(null);
-  const characterPolygon = useRef<Point[]>([]);
+  const characterPolygons = useRef<Point[][]>([]);
+  const overCharacter = (point: Point) => characterPolygons.current.some(polygon => insideCharacter(point, polygon));
   const contextMenuShown = useRef(false);
   const bubbleActivationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bubbleGesture = useRef<{ id: string; pointerId: number; x: number; y: number; moved: boolean; hadSelection: boolean } | null>(null);
@@ -113,7 +113,7 @@ function Widget({ state }: { state: CompanionState }) {
   function activateBubble(event: React.MouseEvent<HTMLButtonElement>) {
     event.stopPropagation();
     cancelBubbleActivation();
-    if (state.bubble?.kind === 'preview' || !state.bubble) return;
+    if (!state.bubble) return;
     if (event.detail === 0 || validBubbleClick(event, true)) api.activateBubble(state.bubble.id);
   }
 
@@ -166,7 +166,7 @@ function Widget({ state }: { state: CompanionState }) {
 
   useEffect(() => {
     if (!state.visible) {
-      characterPolygon.current = [];
+      characterPolygons.current = [];
       api.setHitRegions([]);
       return;
     }
@@ -215,9 +215,9 @@ function Widget({ state }: { state: CompanionState }) {
         const scaleX = bounds.width / SCENE_SIZE.width;
         const scaleY = bounds.height / SCENE_SIZE.height;
         const round = (value: number) => Math.round(value * 2) / 2;
-        characterPolygon.current = frame.polygon.map((p) => ({ x: round(bounds.left + p.x * scaleX), y: round(bounds.top + p.y * scaleY) }));
+        characterPolygons.current = frame.polygons.map(polygon => polygon.map((p) => ({ x: round(bounds.left + p.x * scaleX), y: round(bounds.top + p.y * scaleY) })));
         const regions: HitRegion[] = [
-          { type: 'polygon', points: characterPolygon.current },
+          ...characterPolygons.current.map(points => ({ type: 'polygon' as const, points })),
           { type: 'rect', rect: { x: round(bounds.left + frame.hp.x * scaleX), y: round(bounds.top + (frame.hp.y - 16) * scaleY), width: round(frame.hp.width * scaleX), height: round((frame.hp.height + 16) * scaleY) } },
         ];
         if (bubbleRef.current && current.bubble) {
@@ -239,7 +239,7 @@ function Widget({ state }: { state: CompanionState }) {
       cancelAnimationFrame(frameId);
       resizeObserver.disconnect();
       window.removeEventListener('resize', markDirty);
-      characterPolygon.current = [];
+      characterPolygons.current = [];
       api.setHitRegions([]);
     };
   }, [state.visible, state.appearance.scale, state.appearance.characterId]);
@@ -257,7 +257,7 @@ function Widget({ state }: { state: CompanionState }) {
     onContextMenu={(event) => {
       event.preventDefault();
       if (contextMenuShown.current) { contextMenuShown.current = false; return; }
-      if (!insideCharacter({ x: event.clientX, y: event.clientY }, characterPolygon.current)) return;
+      if (!overCharacter({ x: event.clientX, y: event.clientY })) return;
       finishGesture(null);
       api.showContextMenu();
     }}
@@ -266,7 +266,7 @@ function Widget({ state }: { state: CompanionState }) {
       if (event.button !== 0) return;
       if (event.ctrlKey) {
         event.preventDefault();
-        if (insideCharacter({ x: event.clientX, y: event.clientY }, characterPolygon.current)) {
+        if (overCharacter({ x: event.clientX, y: event.clientY })) {
           finishGesture(null);
           contextMenuShown.current = true;
           api.showContextMenu();
@@ -283,7 +283,7 @@ function Widget({ state }: { state: CompanionState }) {
   >
     <canvas className="character-canvas" ref={canvasRef} aria-hidden="true" data-testid="character-canvas" />
     <span className="sr-only" role="progressbar" aria-label="퇴근 HP" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.floor(state.hp)} />
-    {state.bubble && <div className={`notification-bubble${state.bubble.kind === 'chat' ? ' chat-answer-bubble' : state.bubble.kind === 'chat-loading' ? ' chat-loading-bubble' : state.bubble.kind === 'briefing' ? ' briefing-bubble' : ''}${state.bubble.kind !== 'preview' ? ' actionable-bubble' : ''}`} ref={bubbleRef} role="status" data-testid="notification-bubble"
+    {state.bubble && <div className={`notification-bubble${state.bubble.kind === 'chat' ? ' chat-answer-bubble' : state.bubble.kind === 'chat-loading' ? ' chat-loading-bubble' : ''} actionable-bubble`} ref={bubbleRef} role="status" data-testid="notification-bubble"
       onContextMenu={(event) => event.stopPropagation()}
       onPointerDown={(event) => {
         event.stopPropagation();
@@ -302,7 +302,7 @@ function Widget({ state }: { state: CompanionState }) {
       onDoubleClick={() => { cancelBubbleActivation(); bubbleGesture.current = null; }}
       onClick={(event) => {
         if ((event.target as HTMLElement).closest('button')) return;
-        if (state.bubble?.kind === 'preview' || !state.bubble || event.detail !== 1 || !validBubbleClick(event)) return;
+        if (!state.bubble || event.detail !== 1 || !validBubbleClick(event)) return;
         const bubbleId = state.bubble.id;
         // Let a second click, text selection or scrolling win over opening a window.
         bubbleActivationTimer.current = setTimeout(() => {
@@ -311,7 +311,7 @@ function Widget({ state }: { state: CompanionState }) {
         }, 300);
       }}
       onKeyDown={(event) => event.stopPropagation()}>
-      <div className="bubble-heading"><span className="bubble-dot" />{state.bubble.kind === 'preview' ? <span>알림 미리보기</span> : <button type="button" className="bubble-open" aria-label={state.bubble.kind === 'reminder' || state.bubble.kind === 'briefing' ? '메모 목록 열기' : '대화 창 열기'} title={state.bubble.kind === 'reminder' || state.bubble.kind === 'briefing' ? '메모 목록 열기' : '대화 창 열기'} data-testid="activate-notification" onClick={activateBubble}>{state.bubble.kind === 'briefing' ? '퇴근 전 할 일' : state.bubble.kind === 'reminder' ? '메모 알림' : `${getCharacterDefinition(state.appearance.characterId).label}와 대화`}</button>}<button type="button" className="bubble-close" aria-label={state.bubble.kind === 'chat' ? 'AI 답변 닫기' : state.bubble.kind === 'chat-loading' ? '생성 상태 접기' : '알림 닫기'} title={state.bubble.kind === 'chat-loading' ? '표시만 접고 답변은 계속 기다려요' : undefined} data-testid="dismiss-notification" disabled={dismissing} onClick={(event) => { event.stopPropagation(); void dismiss(); }}><CloseIcon /></button></div>
+      <div className="bubble-heading"><span className="bubble-dot" /><button type="button" className="bubble-open" aria-label={state.bubble.kind === 'reminder' ? '메모 목록 열기' : '대화 창 열기'} title={state.bubble.kind === 'reminder' ? '메모 목록 열기' : '대화 창 열기'} data-testid="activate-notification" onClick={activateBubble}>{state.bubble.kind === 'reminder' ? '메모 알림' : `${getCharacterDefinition(state.appearance.characterId).label}와 대화`}</button><button type="button" className="bubble-close" aria-label={state.bubble.kind === 'chat' ? 'AI 답변 닫기' : state.bubble.kind === 'chat-loading' ? '생성 상태 접기' : '알림 닫기'} title={state.bubble.kind === 'chat-loading' ? '표시만 접고 답변은 계속 기다려요' : undefined} data-testid="dismiss-notification" disabled={dismissing} onClick={(event) => { event.stopPropagation(); void dismiss(); }}><CloseIcon /></button></div>
       {(dismissError || (state.bubble.kind === 'reminder' && state.reminderError)) && <p className="inline-error" role="alert" data-testid={state.bubble.kind === 'reminder' ? 'reminder-error' : 'bubble-error'}>{dismissError || state.reminderError}</p>}
       {state.bubble.kind === 'chat-loading' ? <div className="bubble-thinking"><span className="thinking-dots" aria-hidden="true"><span /><span /><span /></span><span data-testid="chat-loading-status">응답 생성 중…</span><button type="button" className="text-button" data-testid="cancel-bubble-question" disabled={cancelling} onClick={(event) => { event.stopPropagation(); void cancelChat(); }}>{cancelling ? '취소 중' : '취소'}</button></div> : <p tabIndex={state.bubble.kind === 'chat' ? 0 : undefined}>{state.bubble.text}</p>}
     </div>}
@@ -358,11 +358,6 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [scheduleSaved, setScheduleSaved] = useState(false);
-  const [shortcutError, setShortcutError] = useState<string | null>(null);
-  const [savingShortcut, setSavingShortcut] = useState(false);
-  const [capturingShortcut, setCapturingShortcut] = useState(false);
-  const [shortcutSaved, setShortcutSaved] = useState(false);
-  const error = shortcutError || state.error;
   const savedDate = state.workSchedule?.date;
   const savedStart = state.workSchedule?.startTime;
   const savedEnd = state.workSchedule?.endTime;
@@ -406,31 +401,6 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
     } finally { setSavingSchedule(false); }
   }
 
-  async function captureShortcut(event: React.KeyboardEvent<HTMLInputElement>) {
-    event.preventDefault();
-    event.stopPropagation();
-    if (event.key === 'Escape' && !event.metaKey && !event.ctrlKey && !event.altKey) {
-      event.currentTarget.blur();
-      return;
-    }
-    if (event.repeat || savingShortcut) return;
-    const value = shortcutFromEvent(event);
-    if (!value) {
-      if (!['Meta', 'Control', 'Alt', 'Shift'].includes(event.key)) setShortcutError('⌘, ⌃, ⌥ 중 하나와 함께 눌러 주세요.');
-      return;
-    }
-    setSavingShortcut(true);
-    setShortcutError(null);
-    setShortcutSaved(false);
-    try {
-      const result = await companion.setShortcut(value);
-      if (!result.ok) setShortcutError(result.error || '이 단축키는 사용할 수 없어요. 다른 조합을 눌러 주세요.');
-      else { setShortcutSaved(true); setCapturingShortcut(false); }
-    } catch {
-      setShortcutError('단축키를 저장하지 못했어요. 다시 눌러 주세요.');
-    } finally { setSavingShortcut(false); }
-  }
-
   return <main className="panel" data-testid="companion-panel">
     <header className="panel-header">
       <div className="brand"><span className="brand-stone" aria-hidden="true">• •</span><span>작은 동료</span></div>
@@ -439,7 +409,7 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
     <div className="panel-tabs" role="tablist" aria-label="관리 항목" onKeyDown={(event) => {
       if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
       event.preventDefault();
-      const tabs = ['work', 'memos', 'appearance'] as const;
+      const tabs = ['work', 'memos', 'appearance', 'settings'] as const;
       const index = tabs.indexOf(tab);
       const next = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[tabs.length - 1] : tabs[(index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length];
       setTab(next);
@@ -448,6 +418,7 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
       <button type="button" role="tab" id="work-tab" aria-controls="work-tabpanel" aria-selected={tab === 'work'} tabIndex={tab === 'work' ? 0 : -1} data-testid="work-tab" onClick={() => setTab('work')}>근무</button>
       <button type="button" role="tab" id="memos-tab" aria-controls="memos-tabpanel" aria-selected={tab === 'memos'} tabIndex={tab === 'memos' ? 0 : -1} data-testid="memos-tab" onClick={() => setTab('memos')}>메모</button>
       <button type="button" role="tab" id="appearance-tab" aria-controls="appearance-tabpanel" aria-selected={tab === 'appearance'} tabIndex={tab === 'appearance' ? 0 : -1} data-testid="appearance-tab" onClick={() => setTab('appearance')}>캐릭터</button>
+      <button type="button" role="tab" id="settings-tab" aria-controls="settings-tabpanel" aria-selected={tab === 'settings'} tabIndex={tab === 'settings' ? 0 : -1} data-testid="settings-tab" onClick={() => setTab('settings')}>설정</button>
     </div>
     <div className="panel-content">
       <div role="tabpanel" id="work-tabpanel" aria-labelledby="work-tab" hidden={tab !== 'work'}>
@@ -471,31 +442,18 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
         {savedDate && (savedDate !== localDate() || isOvernight) && <p className="schedule-anchor" data-testid="schedule-anchor">{savedDate !== localDate() ? `${savedDate.replaceAll('-', '.')} 기준` : ''}{isOvernight ? `${savedDate !== localDate() ? ' · ' : ''}다음날 퇴근` : ''}</p>}
       </section>
 
-      <section className="utility-settings" aria-label="캐릭터 동작">
-        <div className="setting-row"><label id="walking-label" className="setting-title">자유롭게 이동</label><button type="button" role="switch" aria-checked={state.walking} aria-labelledby="walking-label" className={`toggle ${state.walking ? 'on' : ''}`} data-testid="walking-toggle" onClick={() => companion.setWalking(!state.walking)}><span /></button></div>
-        <button type="button" className="preview-button" data-testid="preview-notification" onClick={() => companion.previewNotification()}><svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5a3.5 3.5 0 0 1 7 0c0 4 1.5 4 1.5 4H3s1.5 0 1.5-4Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /><path d="M6.5 13h3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg><span>알림 미리보기</span></button>
-      </section>
-
-      <BriefingSettings settings={state.briefingSettings} error={state.briefingError} companion={companion} />
-
-      <section className="shortcut-settings" aria-label="단축키 설정">
-        <div className="shortcut-label"><label className="field-label" htmlFor="shortcut-input">숨기기 · 다시 표시</label>{shortcutSaved && <span className="saved-indicator" role="status">저장됨</span>}</div>
-        <input id="shortcut-input" className={`shortcut-input ${capturingShortcut ? 'capturing' : ''}`} aria-label="숨기기 단축키 변경" aria-describedby="shortcut-hint" type="text" readOnly value={capturingShortcut ? '새 조합 키를 눌러 주세요' : displayShortcut(state.shortcut)} onFocus={() => { setCapturingShortcut(true); setShortcutSaved(false); }} onBlur={() => setCapturingShortcut(false)} onKeyDown={captureShortcut} aria-busy={savingShortcut} data-testid="shortcut-input" />
-        <p id="shortcut-hint" className="field-hint">입력칸을 선택한 뒤 원하는 조합 키를 눌러 주세요.</p>
-        {!state.shortcutRegistered && !error && <p className="inline-error" role="alert">단축키를 등록하지 못했어요. 다른 조합으로 바꿔 주세요.</p>}
-        {error && <p className="inline-error" role="alert" data-testid="panel-error">{error}</p>}
-
-      </section>
       </div>
       <div role="tabpanel" id="memos-tabpanel" aria-labelledby="memos-tab" hidden={tab !== 'memos'}>
-        <MemoPanel memos={state.memos} memoError={state.memoError} reminderError={state.reminderError} companion={companion} />
+        <MemoPanel memos={state.memos} memoError={state.memoError} reminderError={state.reminderError} navigation={state.panelNavigation} companion={companion} />
       </div>
       <div role="tabpanel" id="appearance-tabpanel" aria-labelledby="appearance-tab" hidden={tab !== 'appearance'}>
         <CharacterSettings settings={state.appearance} error={state.appearanceError} companion={companion} />
       </div>
+      <div role="tabpanel" id="settings-tabpanel" aria-labelledby="settings-tab" hidden={tab !== 'settings'}>
+        <SettingsPanel state={state} companion={companion} />
+      </div>
     </div>
     <footer className="panel-footer">
-      <button type="button" className="hide-button" data-testid="hide-companion" onClick={() => companion.toggleVisibility()}><svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4Z" stroke="currentColor" strokeWidth="1.2" /><path d="m3 13 10-10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>잠시 숨기기</button>
       <button type="button" className="quit-button" data-testid="quit-app" onClick={() => companion.quit()}>앱 종료</button>
     </footer>
   </main>;
@@ -505,7 +463,7 @@ function App() {
   const { state, error } = useCompanionState();
   if (error) return isWidget ? null : <main className="connection-message" role="alert">{error}</main>;
   if (!state) return isWidget ? null : <main className="connection-message" role="status">작은 동료를 불러오고 있어요…</main>;
-  return isWidget ? <Widget state={state} /> : isChat ? <main className="chat-window" data-testid="companion-chat"><ChatPanel characterName={getCharacterDefinition(state.appearance.characterId).label} chat={state.chat} companion={api} active={state.chatOpen} shortcut={state.chatShortcut} shortcutRegistered={state.chatShortcutRegistered} shortcutError={state.chatShortcutError} /></main> : <Panel state={state} companion={api} />;
+  return isWidget ? <Widget state={state} /> : isChat ? <main className="chat-window" data-testid="companion-chat"><ChatPanel characterName={getCharacterDefinition(state.appearance.characterId).label} chat={state.chat} companion={api} active={state.chatOpen} /></main> : <Panel state={state} companion={api} />;
 }
 
 createRoot(document.getElementById('root')!).render(<App />);

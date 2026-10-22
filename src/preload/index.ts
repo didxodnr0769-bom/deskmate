@@ -7,7 +7,6 @@ const api: CompanionApi = {
   newConversation: () => ipcRenderer.invoke('companion:chat-new'),
   openChat: () => send('companion:chat-open'),
   closeChat: () => send('companion:chat-close'),
-  setChatShortcut: (value) => ipcRenderer.invoke('companion:chat-shortcut', value),
   onChatFocus: (listener) => {
     const handler = () => listener();
     ipcRenderer.on('companion:chat-focus', handler);
@@ -33,12 +32,10 @@ const api: CompanionApi = {
   setWalking: (v) => send('companion:walking', v),
   setAppearance: (v) => ipcRenderer.invoke('companion:appearance', v),
   setWorkSchedule: (v) => ipcRenderer.invoke('companion:work-schedule', v),
-  setBriefingSettings: (v) => ipcRenderer.invoke('companion:briefing-settings', v),
   addMemo: (draft) => ipcRenderer.invoke('companion:memo-add', draft),
   updateMemo: (id, draft) => ipcRenderer.invoke('companion:memo-update', { id, draft }),
   setMemoCompleted: (id, completed) => ipcRenderer.invoke('companion:memo-complete', { id, completed }),
   deleteMemo: (id) => ipcRenderer.invoke('companion:memo-delete', id),
-  previewNotification: () => send('companion:preview-notification'),
   dismissBubble: (id) => ipcRenderer.invoke('companion:bubble-dismiss', id),
   setShortcut: (v) => ipcRenderer.invoke('companion:shortcut', v),
   quit: () => send('companion:quit'),

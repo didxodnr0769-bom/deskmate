@@ -15,6 +15,8 @@ const sharedFiles = [
   'docs/verification.md', '.agents/README.md', 'AGENTS.md', 'CLAUDE.md', 'README.md',
   'package.json', 'package-lock.json', 'LICENSE', 'THIRD_PARTY_NOTICES.md',
   '.gitignore', '.nvmrc', 'tsconfig.json', 'vite.config.ts', 'index.html',
+  'docs/usage.md', 'docs/assets.md', 'docs/security.md',
+  'docs/images/companion.png', 'docs/images/memos.png', 'docs/images/chat.png', 'docs/images/settings.png',
 ];
 const codeFiles = [
   'src/main/bootstrap.ts', 'src/renderer/assets/character.png', 'src/shared/authorization.ts',
@@ -53,6 +55,7 @@ test('source staging preserves shared AI guides and nested code while excluding 
   await write(root, '.gitignore', '');
   const privateFiles = [
     'docs/personal-notes.md', 'docs/plans/session.md', '.agents/notes/private.md',
+    'docs/images/private-screen.png', 'docs/images/session-private.png',
     '.codex/config.toml', '.claude/settings.json', '.cursor/rules/private.mdc',
     'src/.codex/config.toml', 'src/.claude/settings.json', 'src/.cursor/rules/private.mdc',
     'tests/.vscode/settings.json', 'scripts/.idea/workspace.xml', 'src/.agents/README.md',

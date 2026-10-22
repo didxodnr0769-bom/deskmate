@@ -1,5 +1,7 @@
-import React, { useCallback, useRef, useState } from 'react';
-import type { CommandResult, CompanionApi, Memo, MemoDraft, MemoSchedule } from '../shared/contracts';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import type { CommandResult, CompanionApi, CompanionState, Memo, MemoDraft, MemoSchedule } from '../shared/contracts';
+
+import { isMemoDate, localMemoDate, shiftMemoDate } from '../shared/memo-date';
 
 const MEMO_LIMIT = 1000;
 
@@ -108,8 +110,9 @@ function MemoEditor({ scope, initialMemo, disabled, busy, onSubmit, onSaved, onC
 
 type Mutate = (key: string, action: () => Promise<CommandResult>) => Promise<CommandResult>;
 
-function MemoItem({ memo, companion, disabled, busyKey, mutate }: { memo: Memo; companion: CompanionApi; disabled: boolean; busyKey: string | null; mutate: Mutate }) {
+function MemoItem({ memo, companion, disabled, busyKey, mutate, hidden, onEditingChange }: { memo: Memo; companion: CompanionApi; disabled: boolean; busyKey: string | null; mutate: Mutate; hidden: boolean; onEditingChange(id: string, editing: boolean): void }) {
   const [editing, setEditing] = useState(false);
+  function edit(value: boolean) { setEditing(value); onEditingChange(memo.id, value); }
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scope = `memo-edit-${memo.id}`;
@@ -128,17 +131,40 @@ function MemoItem({ memo, companion, disabled, busyKey, mutate }: { memo: Memo; 
     if (!result.ok) setError(result.error || '메모를 삭제하지 못했어요.');
   }
 
-  return <li className={`memo-item ${memo.completed ? 'completed' : ''}`} data-testid={`memo-item-${memo.id}`} aria-busy={busy}>
-    {editing ? <MemoEditor scope={scope} initialMemo={memo} disabled={disabled} busy={busyKey === `edit:${memo.id}`} onSubmit={(draft) => mutate(`edit:${memo.id}`, () => companion.updateMemo(memo.id, draft))} onSaved={() => setEditing(false)} onCancel={() => setEditing(false)} /> : <>
+  return <li className={`memo-item ${memo.completed ? 'completed' : ''}`} data-testid={`memo-item-${memo.id}`} aria-busy={busy} hidden={hidden}>
+    {editing ? <MemoEditor scope={scope} initialMemo={memo} disabled={disabled} busy={busyKey === `edit:${memo.id}`} onSubmit={(draft) => mutate(`edit:${memo.id}`, () => companion.updateMemo(memo.id, draft))} onSaved={() => edit(false)} onCancel={() => edit(false)} /> : <>
       <label className="memo-check"><input type="checkbox" checked={memo.completed} disabled={disabled} aria-label={memo.completed ? '메모 완료 취소' : '메모 완료'} aria-describedby={`memo-body-${memo.id}`} data-testid={`memo-complete-${memo.id}`} onChange={setCompleted} /><span className="memo-body" id={`memo-body-${memo.id}`}>{memo.text}</span></label>
       {reservation && <p className="memo-reminder" data-testid={`memo-reminder-${memo.id}`}>{reservation}</p>}
-      {confirmDelete ? <div className="memo-delete-confirm" role="group" aria-label="메모 삭제 확인"><span>삭제할까요?</span><button className="text-button" type="button" disabled={busy} data-testid={`memo-delete-cancel-${memo.id}`} onClick={() => setConfirmDelete(false)}>취소</button><button className="text-button danger-button" type="button" disabled={disabled} data-testid={`memo-delete-confirm-${memo.id}`} onClick={remove}>삭제</button></div> : <div className="memo-item-actions"><button className="text-button" type="button" disabled={disabled} data-testid={`memo-edit-${memo.id}`} onClick={() => { setEditing(true); setConfirmDelete(false); setError(null); }}>수정</button><button className="text-button" type="button" disabled={disabled} data-testid={`memo-delete-${memo.id}`} onClick={() => { setConfirmDelete(true); setError(null); }}>삭제</button></div>}
+      {confirmDelete ? <div className="memo-delete-confirm" role="group" aria-label="메모 삭제 확인"><span>삭제할까요?</span><button className="text-button" type="button" disabled={busy} data-testid={`memo-delete-cancel-${memo.id}`} onClick={() => setConfirmDelete(false)}>취소</button><button className="text-button danger-button" type="button" disabled={disabled} data-testid={`memo-delete-confirm-${memo.id}`} onClick={remove}>삭제</button></div> : <div className="memo-item-actions"><button className="text-button" type="button" disabled={disabled} data-testid={`memo-edit-${memo.id}`} onClick={() => { edit(true); setConfirmDelete(false); setError(null); }}>수정</button><button className="text-button" type="button" disabled={disabled} data-testid={`memo-delete-${memo.id}`} onClick={() => { setConfirmDelete(true); setError(null); }}>삭제</button></div>}
       {error && <p className="inline-error" role="alert" data-testid={`memo-item-error-${memo.id}`}>{error}</p>}
     </>}
   </li>;
 }
 
-export function MemoPanel({ memos, memoError, reminderError, companion }: { memos: Memo[]; memoError: string | null; reminderError: string | null; companion: CompanionApi }) {
+export function MemoPanel({ memos, memoError, reminderError, navigation, companion }: { memos: Memo[]; memoError: string | null; reminderError: string | null; navigation: CompanionState['panelNavigation']; companion: CompanionApi }) {
+  const [today, setToday] = useState(() => localMemoDate());
+  const [selectedDate, setSelectedDate] = useState(() => navigation?.tab === 'memos' && isMemoDate(navigation.memoDate) ? navigation.memoDate : localMemoDate());
+  const previousToday = useRef(today);
+  useEffect(() => {
+    const refreshDate = () => setToday(localMemoDate());
+    const timer = window.setInterval(refreshDate, 1000);
+    window.addEventListener('focus', refreshDate);
+    document.addEventListener('visibilitychange', refreshDate);
+    return () => { clearInterval(timer); window.removeEventListener('focus', refreshDate); document.removeEventListener('visibilitychange', refreshDate); };
+  }, []);
+  useEffect(() => {
+    const previous = previousToday.current;
+    previousToday.current = today;
+    // Follow the new day only while viewing today. An explicitly chosen archive stays put.
+    setSelectedDate(current => current === previous ? today : current);
+  }, [today]);
+  useEffect(() => {
+    if (navigation?.tab === 'memos') setSelectedDate(isMemoDate(navigation.memoDate) ? navigation.memoDate : localMemoDate());
+  }, [navigation?.sequence]);
+  const [editingIds, setEditingIds] = useState<Set<string>>(() => new Set());
+  const onEditingChange = useCallback((id: string, editing: boolean) => setEditingIds(current => {
+    const next = new Set(current); if (editing) next.add(id); else next.delete(id); return next;
+  }), []);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const busyRef = useRef(false);
   const mutate: Mutate = useCallback(async (key, action) => {
@@ -153,16 +179,30 @@ export function MemoPanel({ memos, memoError, reminderError, companion }: { memo
     } finally { busyRef.current = false; setBusyKey(null); }
   }, [memoError]);
   const disabled = Boolean(memoError) || busyKey !== null;
-  const pending = memos.filter((memo) => !memo.completed);
-  const completed = memos.filter((memo) => memo.completed);
+  const dayMemos = memos.filter(memo => memo.date === selectedDate);
+  const pending = dayMemos.filter((memo) => !memo.completed);
+  const completed = dayMemos.filter((memo) => memo.completed);
+  // Keep only active edit instances mounted across date changes, including midnight.
+  const pendingRows = memos.filter(memo => !memo.completed && (memo.date === selectedDate || editingIds.has(memo.id)));
+  const completedRows = memos.filter(memo => memo.completed && (memo.date === selectedDate || editingIds.has(memo.id)));
 
   return <section className="memo-panel" aria-label="메모 관리" data-testid="memo-panel">
+    <div className="memo-date-controls">
+      <label className="field-label" htmlFor="memo-date">할 일 날짜</label>
+      <div className="memo-date-toolbar">
+        <button type="button" aria-label="이전 날짜" data-testid="memo-previous-date" disabled={busyKey !== null || selectedDate === '0001-01-01'} onClick={() => setSelectedDate(shiftMemoDate(selectedDate, -1))}>‹</button>
+        <input id="memo-date" type="date" min="0001-01-01" max="9999-12-31" value={selectedDate} disabled={busyKey !== null} data-testid="memo-date" onChange={event => { if (isMemoDate(event.target.value)) setSelectedDate(event.target.value); }} />
+        <button type="button" aria-label="다음 날짜" data-testid="memo-next-date" disabled={busyKey !== null || selectedDate === '9999-12-31'} onClick={() => setSelectedDate(shiftMemoDate(selectedDate, 1))}>›</button>
+        <button type="button" data-testid="memo-today" disabled={busyKey !== null} onClick={() => setSelectedDate(localMemoDate())}>오늘</button>
+      </div>
+      <p className="memo-date-hint" data-testid="memo-date-hint">{selectedDate === today ? '오늘의 할 일' : `${selectedDate.replaceAll('-', '.')}의 할 일`} · 이전 기록은 날짜를 바꿔 확인하세요.</p>
+    </div>
     {memoError && <p className="memo-load-error" role="alert" data-testid="memo-load-error">메모를 불러오지 못해 변경할 수 없어요.<span>{memoError}</span></p>}
-    <MemoEditor scope="memo-add" disabled={disabled} busy={busyKey === 'add'} onSubmit={(draft) => mutate('add', () => companion.addMemo(draft))} />
-    <p className="memo-feature-hint">한 번 알림과 매일·요일 반복을 선택할 수 있어요. 완료한 메모는 알리지 않아요.</p>
+    <MemoEditor scope="memo-add" disabled={disabled} busy={busyKey === 'add'} onSubmit={(draft) => mutate('add', () => companion.addMemo({ ...draft, date: selectedDate }))} />
+    <p className="memo-feature-hint">알림은 날짜별 목록과 별도로 예약돼요. 날짜가 바뀌어도 설정한 반복 알림은 유지돼요.</p>
     {reminderError && <p className="inline-error" role="alert" data-testid="memo-reminder-error">{reminderError}</p>}
-    {!memos.length && !memoError && <p className="memo-empty" data-testid="memo-empty">메모가 없어요.</p>}
-    {pending.length > 0 && <section className="memo-group" aria-label="할 일"><h2>할 일 <span>{pending.length}</span></h2><ul>{pending.map((memo) => <MemoItem key={memo.id} memo={memo} companion={companion} disabled={disabled} busyKey={busyKey} mutate={mutate} />)}</ul></section>}
-    {completed.length > 0 && <section className="memo-group completed-group" aria-label="완료한 메모"><h2>완료 <span>{completed.length}</span></h2><ul>{completed.map((memo) => <MemoItem key={memo.id} memo={memo} companion={companion} disabled={disabled} busyKey={busyKey} mutate={mutate} />)}</ul></section>}
+    {!dayMemos.length && !memoError && <p className="memo-empty" data-testid="memo-empty">이 날짜에 등록한 할 일이 없어요.</p>}
+    {pendingRows.length > 0 && <section className="memo-group" aria-label="할 일" hidden={pending.length === 0}><h2>할 일 <span>{pending.length}</span></h2><ul>{pendingRows.map((memo) => <MemoItem key={memo.id} memo={memo} companion={companion} disabled={disabled} busyKey={busyKey} mutate={mutate} hidden={memo.date !== selectedDate} onEditingChange={onEditingChange} />)}</ul></section>}
+    {completedRows.length > 0 && <section className="memo-group completed-group" aria-label="완료한 메모" hidden={completed.length === 0}><h2>완료 <span>{completed.length}</span></h2><ul>{completedRows.map((memo) => <MemoItem key={memo.id} memo={memo} companion={companion} disabled={disabled} busyKey={busyKey} mutate={mutate} hidden={memo.date !== selectedDate} onEditingChange={onEditingChange} />)}</ul></section>}
   </section>;
 }

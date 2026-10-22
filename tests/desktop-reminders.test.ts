@@ -68,7 +68,7 @@ function localTime(hour: number, minute: number, second = 0): number {
 }
 
 function memo(text: string, reminderTime: string, dueAt: number): StoredMemo {
-  return { id: randomUUID(), text, reminderTime, completed: false,
+  return { id: randomUUID(), date: '2026-10-20', text, reminderTime, completed: false,
     createdAt: localTime(8, 0), updatedAt: localTime(8, 0),
     reminder: { dueAt, acknowledged: false } };
 }
@@ -131,7 +131,7 @@ function harness(directory: string, initialNow: number, agentProvider?: AgentPro
     assert.ok(callback, `IPC handle is registered: ${channel}`);
     return callback(source, value) as T;
   };
-  const invoke = <T = CommandResult>(channel: string, value?: unknown, surface: Surface = (channel === 'agent-check' || ['chat-ask', 'chat-cancel', 'chat-new', 'chat-shortcut'].includes(channel)) ? 'chat' : 'panel'): T =>
+  const invoke = <T = CommandResult>(channel: string, value?: unknown, surface: Surface = (channel === 'agent-check' || ['chat-ask', 'chat-cancel', 'chat-new'].includes(channel)) ? 'chat' : 'panel'): T =>
     invokeFrom<T>(channel, value, event(surface));
   return {
     controller, screen, filename, event, invoke, invokeFrom, shortcuts, menus,
@@ -147,6 +147,9 @@ function harness(directory: string, initialNow: number, agentProvider?: AgentPro
       assert.ok(callback, `IPC listener is registered: ${channel}`);
       callback(event(surface), value);
     },
+    now: () => now,
+    hasListener: (channel: string) => events.has("companion:" + channel),
+    hasHandler: (channel: string) => handlers.has("companion:" + channel),
     setNow(value: number) { now = value; },
     tick(milliseconds = 1000) { now += milliseconds; for (const callback of intervals) callback(); },
     dispose() { controller.dispose(); assert.equal(intervals.size, 0); },
@@ -167,6 +170,12 @@ function reminder(h: Harness) {
   const bubble = h.state().bubble;
   assert.ok(bubble && bubble.kind === 'reminder', 'a real memo reminder is displayed');
   return bubble;
+}
+
+function showAlarm(h: Harness) {
+  assert.equal(h.invoke('memo-add', { text: '조작 중 유지할 실제 예약 알림', reminderTime: null,
+    schedule: { kind: 'once', dueAt: h.now() } }).ok, true);
+  return reminder(h);
 }
 
 function close(h: Harness, id: string): CommandResult {
@@ -239,21 +248,26 @@ test('hidden characters remain temporarily visible through the queue and return 
   });
 });
 
-test('scheduled alarms take priority over a preview and an active alarm cannot be replaced by another preview', () => {
-  const item = memo('예약', '10:01', localTime(10, 1));
-  fixture([item], h => {
-    h.send('preview-notification');
-    assert.equal(h.state().bubble?.kind, 'preview');
-    const previewId = h.state().bubble!.id;
-    h.tick(40_000);
-    const active = reminder(h);
-    assert.equal(active.memoId, item.id);
-    h.send('preview-notification');
-    assert.equal(reminder(h).id, active.id);
-    close(h, previewId);
-    assert.equal(reminder(h).id, active.id);
-    close(h, active.id);
-    assert.equal(h.state().bubble, null);
+test('removed notification preview and briefing IPC are absent and inherited settings never schedule a notice', () => {
+  fixture([memo('저장된 작업', '20:00', localTime(20, 0))], (h, directory) => {
+    const file = join(directory, 'briefing.json');
+    const original = JSON.stringify({ version: 1, settings: { enabled: true, beforeMinutes: 30 } });
+    writeFileSync(file, original);
+    const restarted = harness(directory, localTime(17, 30));
+    try {
+      assert.equal(restarted.hasHandler('briefing-settings'), false);
+      assert.equal(restarted.hasListener('preview-notification'), false);
+      restarted.invoke('work-schedule', { date: '2026-10-20', startTime: '09:00', endTime: '18:00' });
+      restarted.tick();
+      assert.equal(restarted.state().bubble, null);
+      assert.equal(readFileSync(file, 'utf8'), original);
+    } finally { restarted.dispose(); }
+    writeFileSync(file, '{unreadable legacy feature settings');
+    const corrupt = harness(directory, localTime(17, 30));
+    try {
+      corrupt.tick(); assert.equal(corrupt.state().bubble, null);
+      assert.equal(readFileSync(file, 'utf8'), '{unreadable legacy feature settings');
+    } finally { corrupt.dispose(); }
   });
 });
 
@@ -422,8 +436,6 @@ test('a newly due memo interrupts the AI bubble and the answer returns after ack
   await chatFixture(async (h, reply) => {
     h.invoke('chat-ask', '질문'); reply('다시 보여줄 답변'); await chatSettled();
     const chatId = h.state().bubble!.id;
-    h.send('preview-notification');
-    assert.equal(h.state().bubble!.id, chatId, 'preview cannot replace a real answer');
     h.tick(40_000);
     const active = reminder(h);
     close(h, chatId);
@@ -503,7 +515,7 @@ test('loading bubble is immediate and quiet, can be folded without cancelling, a
     const loading = h.state().bubble!;
     assert.equal(loading.kind, 'chat-loading');
     assert.equal(h.state().motion, 'idle', 'waiting does not repeatedly jump');
-    h.send('preview-notification');
+    h.tick(1);
     assert.equal(h.state().bubble!.id, loading.id);
     close(h, loading.id);
     h.tick(2000);
@@ -577,18 +589,17 @@ test('chat shortcut has an independent callback and cannot replace the visibilit
   await chatFixture(async (h) => {
     const initial = h.state();
     assert.equal(initial.chatShortcutRegistered, true);
-    assert.equal(h.invoke('chat-shortcut', initial.shortcut).ok, false);
+    assert.equal(h.hasHandler('chat-shortcut'), false);
     assert.equal(h.state().chatShortcut, initial.chatShortcut);
     assert.equal(h.invoke('shortcut', initial.chatShortcut).ok, false);
     h.shortcuts.get(initial.chatShortcut)!();
     assert.equal(h.state().chatOpen, true);
-    assert.equal(h.invoke('chat-shortcut', 'Command+Alt+J').ok, true);
-    assert.equal(h.shortcuts.has(initial.chatShortcut), false);
+    assert.equal(h.shortcuts.has(initial.chatShortcut), true);
     assert.equal(h.shortcuts.has(initial.shortcut), true);
     h.shortcuts.get(initial.shortcut)!();
     assert.equal(h.state().chatOpen, false);
     assert.equal(h.state().visible, false);
-    h.shortcuts.get('Command+Alt+J')!();
+    h.shortcuts.get(initial.chatShortcut)!();
     assert.equal(h.state().chatOpen, true);
   });
 });
@@ -618,7 +629,7 @@ test('native context menu is widget-only, pauses movement and targets each reque
     assert.equal(h.menus.length, 0);
     h.send('context-menu');
     const menu = h.menus[0];
-    assert.deepEqual(Array.from(menu.items, item => item.label), ['대화하기', '근무시간', '메모', '캐릭터 설정']);
+    assert.deepEqual(Array.from(menu.items, item => item.label), ['대화하기', '근무시간', '메모', '캐릭터 설정', '설정']);
     const origin = h.controller.widget.getBounds();
     h.tick(3000);
     assert.deepEqual(h.controller.widget.getBounds(), origin);
@@ -679,10 +690,9 @@ test('memo bubble navigation preserves the alarm and never acknowledges or compl
   });
 });
 
-test('AI bubble navigation preserves the active request and history and stale or preview bubbles do nothing', async () => {
+test('AI bubble navigation preserves the active request and history and stale bubbles do nothing', async () => {
   await chatFixture(async (h, reply) => {
-    h.send('preview-notification');
-    h.send('bubble-activate', h.state().bubble!.id);
+    h.send('bubble-activate', 'obsolete-bubble');
     assert.equal(h.state().chatOpen, false);
     h.invoke('chat-ask', '기억할 질문');
     const loading = h.state().bubble!;
@@ -704,15 +714,11 @@ test('AI bubble navigation preserves the active request and history and stale or
   });
 });
 
-test('only the chat main frame can change the conversation shortcut', () => {
+test('conversation shortcut configuration IPC is absent while the fixed shortcut remains registered', () => {
   fixture([], h => {
-    const before = h.state().chatShortcut;
-    assert.equal(h.invoke('chat-shortcut', 'Command+Alt+K', 'panel').ok, false);
-    assert.equal(h.invoke('chat-shortcut', 'Command+Alt+K', 'widget').ok, false);
-    assert.equal(h.invokeFrom<CommandResult>('chat-shortcut', 'Command+Alt+K', h.event('chat', true)).ok, false);
-    assert.equal(h.state().chatShortcut, before);
-    assert.equal(h.invoke('chat-shortcut', 'Command+Alt+K', 'chat').ok, true);
-    assert.equal(h.state().chatShortcut, 'Command+Alt+K');
+    assert.equal(h.hasHandler('chat-shortcut'), false);
+    assert.equal(h.state().chatShortcut, 'CommandOrControl+Shift+Return');
+    assert.equal(h.shortcuts.has(h.state().chatShortcut), true);
   });
 });
 
@@ -740,7 +746,7 @@ test('AI command planning reaches the real memo service and stores only the veri
     reply(JSON.stringify({ kind: 'command', command: { name: 'memo.add', text: 'AI로 추가한 회의', reminder: { kind: 'after', minutes: 30 } } }));
     await chatSettled();
     assert.equal(h.disk().memos.length, 1);
-    assert.equal(h.disk().version, 4);
+    assert.equal(h.disk().version, 5);
     assert.equal(h.disk().memos[0].text, 'AI로 추가한 회의');
     assert.match(h.state().chat.answer!, /메모를 추가했어요/);
     assert.doesNotMatch(h.state().chat.messages.at(-1)!.text, /"kind"|"command"/);
@@ -763,58 +769,8 @@ test('cancelled or reset AI command replies cannot mutate real memo storage', as
   });
 });
 
-test('briefing persists acknowledgement across restart and opening its memo list does not complete tasks', () => {
-  fixture([memo('퇴근 전 확인', '20:00', localTime(20, 0))], (h, directory) => {
-    h.invoke('work-schedule', { date: '2026-10-20', startTime: '09:00', endTime: '18:00' });
-    assert.equal(h.invoke('briefing-settings', { enabled: true, beforeMinutes: 30 }, 'chat').ok, false);
-    assert.equal(h.invoke('briefing-settings', { enabled: true, beforeMinutes: 30 }).ok, true);
-    h.setNow(localTime(17, 30)); h.tick(1);
-    const bubble = h.state().bubble; assert.equal(bubble?.kind, 'briefing');
-    h.send('bubble-activate', bubble!.id);
-    assert.equal(h.state().panelNavigation?.tab, 'memos');
-    assert.equal(h.state().bubble!.id, bubble!.id);
-    assert.equal(h.disk().memos[0].completed, false);
-    assert.equal(close(h, bubble!.id).ok, true);
-    assert.equal(h.state().bubble, null);
-    const restarted = harness(directory, localTime(17, 45));
-    try { restarted.tick(); assert.equal(restarted.state().bubble, null); assert.equal(restarted.state().briefingSettings.enabled, true); }
-    finally { restarted.dispose(); }
-  });
-});
-
-test('memo alarms precede work briefing and the newest AI answer returns after both are closed', async () => {
-  await chatFixture(async (h, reply) => {
-    h.invoke('work-schedule', { date: '2026-10-20', startTime: '09:00', endTime: '18:00' });
-    h.invoke('briefing-settings', { enabled: true, beforeMinutes: 30 });
-    h.invoke('chat-ask', '대화 유지');
-    h.setNow(localTime(17, 30)); h.tick(1);
-    assert.equal(h.state().bubble?.kind, 'briefing');
-    reply('최신 답변'); await chatSettled();
-    assert.equal(h.state().bubble?.kind, 'briefing');
-    h.tick(60000); assert.equal(h.state().bubble?.kind, 'reminder');
-    close(h, h.state().bubble!.id); assert.equal(h.state().bubble?.kind, 'briefing');
-    close(h, h.state().bubble!.id); assert.equal(h.state().bubble?.kind, 'chat');
-    assert.equal(h.state().bubble?.text, '최신 답변');
-  }, [memo('가장 먼저 처리', '17:31', localTime(17, 31))]);
-});
-
-test('briefing acknowledgement write failure keeps the visible notice and can be retried safely', () => {
-  fixture([memo('안전하게 보존', '20:00', localTime(20, 0))], (h, directory) => {
-    h.invoke('work-schedule', { date: '2026-10-20', startTime: '09:00', endTime: '18:00' });
-    h.invoke('briefing-settings', { enabled: true, beforeMinutes: 30 });
-    h.setNow(localTime(17, 30)); h.tick(1); const bubble = h.state().bubble!;
-    const path = join(directory, 'briefing.json'), backup = path + '.preserved';
-    renameSync(path, backup); mkdirSync(path);
-    assert.equal(close(h, bubble.id).ok, false); assert.equal(h.state().bubble!.id, bubble.id);
-    assert.ok(h.state().briefingError); assert.equal(h.disk().memos[0].completed, false);
-    rmSync(path, { recursive: true }); renameSync(backup, path);
-    assert.equal(close(h, bubble.id).ok, true); assert.equal(h.state().bubble, null);
-  });
-});
-
-
 test('appearance changes resize a real controller window, preserve feet and notices, and survive restart', () => fixture([], (h, directory) => {
-  h.send('preview-notification'); const bubble = h.state().bubble;
+  showAlarm(h); const bubble = h.state().bubble;
   const before = h.controller.widget.getBounds();
   assert.equal(h.invoke('appearance', { scale: 1.5, characterId: 'rock' }).ok, true);
   const after = h.controller.widget.getBounds();
@@ -887,7 +843,7 @@ test('choosing the already active appearance does not discard a stationary click
 
 
 test('switching characters at the same scale preserves notices and history and restores the selected character', () => fixture([], (h, directory) => {
-  h.invoke('appearance', { scale: 1.25, characterId: 'rock' }); h.send('preview-notification');
+  h.invoke('appearance', { scale: 1.25, characterId: 'rock' }); showAlarm(h);
   const bubble = h.state().bubble, bounds = h.controller.widget.getBounds(), chat = h.state().chat;
   assert.equal(h.invoke('appearance', { scale: 1.25, characterId: 'cat' }).ok, true);
   assert.deepEqual(h.state().appearance, { scale: 1.25, characterId: 'cat' });
@@ -897,3 +853,189 @@ test('switching characters at the same scale preserves notices and history and r
   try { assert.deepEqual(restarted.state().appearance, { scale: 1.25, characterId: 'cat' }); }
   finally { restarted.dispose(); }
 }));
+
+
+test('Chelsea selection survives restart without changing existing memo and work files', () => fixture([memo('existing task', '11:00', localTime(11, 0))], (h, directory) => {
+  assert.equal(h.invoke('work-schedule', { date: '2026-10-20', startTime: '09:00', endTime: '18:00' }).ok, true);
+  showAlarm(h); const bubble = h.state().bubble;
+  const memoFile = readFileSync(h.filename, 'utf8');
+  const workFile = readFileSync(join(directory, 'worktime.json'), 'utf8');
+  assert.equal(h.invoke('appearance', { scale: 1.25, characterId: 'chelsea' }).ok, true);
+  assert.deepEqual(h.state().appearance, { scale: 1.25, characterId: 'chelsea' });
+  assert.deepEqual(h.state().bubble, bubble);
+  assert.equal(readFileSync(h.filename, 'utf8'), memoFile);
+  assert.equal(readFileSync(join(directory, 'worktime.json'), 'utf8'), workFile);
+  const restarted = harness(directory, localTime(10, 5));
+  try { assert.deepEqual(restarted.state().appearance, { scale: 1.25, characterId: 'chelsea' }); }
+  finally { restarted.dispose(); }
+}));
+
+function walkPet(h: Harness) {
+  let sawTurn = false;
+  for (let i = 0; i < 300; i += 1) {
+    h.tick(50);
+    if (h.state().pet?.activity === 'turn') sawTurn = true;
+    if (h.state().pet?.activity === 'walk') {
+      assert.ok(sawTurn, 'a pet turns before it starts translating');
+      h.tick(250);
+      return;
+    }
+  }
+  assert.fail(h.state().appearance.characterId + ' did not begin walking');
+}
+
+for (const characterId of ['chelsea', 'chuchu'] as const) {
+  test(characterId + ' pauses for chat, menus, panels and reminders, then resumes from the same position', () => fixture([], h => {
+    assert.equal(h.invoke('appearance', { scale: 1, characterId }).ok, true);
+    walkPet(h);
+    h.send('chat-open');
+    const chatPosition = h.controller.widget.getBounds();
+    for (let i = 0; i < 100; i += 1) h.tick(50);
+    assert.deepEqual(h.controller.widget.getBounds(), chatPosition);
+    assert.equal(h.state().motion, 'idle');
+    assert.equal(h.state().pet?.activity, 'idle');
+    assert.equal(h.state().pet?.speed, 0);
+    h.send('chat-close', undefined, 'chat');
+    h.tick(50);
+    assert.deepEqual(h.controller.widget.getBounds(), chatPosition);
+    walkPet(h);
+    h.send('context-menu');
+    const menuPosition = h.controller.widget.getBounds();
+    for (let i = 0; i < 100; i += 1) h.tick(50);
+    assert.deepEqual(h.controller.widget.getBounds(), menuPosition);
+    assert.equal(h.state().pet?.activity, 'idle');
+    h.menus.at(-1)!.closePopup();
+    h.tick(50);
+    assert.deepEqual(h.controller.widget.getBounds(), menuPosition);
+    walkPet(h);
+    h.send('panel-open', 'memos');
+    const panelPosition = h.controller.widget.getBounds();
+    for (let i = 0; i < 100; i += 1) h.tick(50);
+    assert.deepEqual(h.controller.widget.getBounds(), panelPosition);
+    assert.equal(h.state().pet?.activity, 'idle');
+    h.send('panel-close');
+    walkPet(h);
+    showAlarm(h);
+    const alertPosition = h.controller.widget.getBounds();
+    for (let i = 0; i < 100; i += 1) h.tick(50);
+    assert.deepEqual(h.controller.widget.getBounds(), alertPosition);
+    assert.equal(h.state().motion, 'notify');
+    assert.equal(h.state().pet?.speed, 0);
+    close(h, h.state().bubble!.id);
+    h.tick(50);
+    assert.deepEqual(h.controller.widget.getBounds(), alertPosition);
+  }));
+
+  test(characterId + ' keeps the drop height, stops actual travel when disabled, and leaves legacy motion unchanged', () => fixture([], h => {
+    h.invoke('appearance', { scale: 1.25, characterId });
+    walkPet(h);
+    h.send('pointer-begin', { x: 1_300, y: 500 });
+    h.send('pointer-end', { x: 1_400, y: 400 });
+    const dropped = h.controller.widget.getBounds();
+    assert.equal(h.state().motion, 'dropping');
+    for (let i = 0; i < 20; i += 1) h.tick(50);
+    assert.deepEqual(h.controller.widget.getBounds(), dropped);
+    assert.ok(dropped.y < 1_080 - dropped.height, 'there is no snap back to the display floor');
+    h.send('walking', false, 'panel');
+    const stationary = h.controller.widget.getBounds();
+    const activities = new Set<string>();
+    for (let i = 0; i < 1_500; i += 1) { h.tick(50); activities.add(h.state().pet!.activity); }
+    assert.deepEqual(h.controller.widget.getBounds(), stationary);
+    assert.ok(activities.has('groom') && activities.has('stretch') && activities.has('sleep'));
+    h.invoke('appearance', { scale: 1.25, characterId: 'rock' });
+    assert.equal(h.state().pet, undefined);
+    h.send('walking', true, 'panel');
+    const beforeLegacy = h.controller.widget.getBounds();
+    h.tick(2_500);
+    assert.equal(h.state().motion, 'walking');
+    assert.notDeepEqual(h.controller.widget.getBounds(), beforeLegacy);
+  }));
+
+  test(characterId + ' snapshots publish gait updates at a bounded rate and survive a suspended clock without jumping', () => fixture([], h => {
+    h.invoke('appearance', { scale: 1, characterId });
+    walkPet(h);
+    const sent = h.controller.widget.webContents.messages.length;
+    let distance = h.state().pet!.distance;
+    for (let i = 0; i < 30; i += 1) {
+      h.tick(1_000 / 30);
+      const pet = h.state().pet!;
+      assert.ok(pet.distance >= distance);
+      distance = pet.distance;
+    }
+    assert.ok(h.controller.widget.webContents.messages.length - sent <= 11, 'walking does not send full app state at every render frame');
+    const beforeSuspend = h.controller.widget.getBounds();
+    h.tick(60_000);
+    assert.deepEqual(h.controller.widget.getBounds(), beforeSuspend);
+    assert.equal(h.state().pet?.activity, 'idle');
+    assert.equal(h.state().pet?.distance, 0);
+    assert.equal(h.state().pet?.speed, 0);
+  }));
+
+}
+
+test('Chuchu selection survives restart while preserving existing work, memos, notices and chat', () => fixture([memo('existing task', '11:00', localTime(11, 0))], (h, directory) => {
+  h.invoke('work-schedule', { date: '2026-10-20', startTime: '09:00', endTime: '18:00' });
+  h.invoke('appearance', { scale: 0.75, characterId: 'chelsea' });
+  showAlarm(h);
+  const before = { bubble: h.state().bubble, chat: h.state().chat,
+    memos: readFileSync(h.filename, 'utf8'), work: readFileSync(join(directory, 'worktime.json'), 'utf8') };
+  assert.equal(h.invoke('appearance', { scale: 0.75, characterId: 'chuchu' }).ok, true);
+  assert.deepEqual(h.state().appearance, { scale: 0.75, characterId: 'chuchu' });
+  assert.deepEqual(h.state().bubble, before.bubble);
+  assert.deepEqual(h.state().chat, before.chat);
+  assert.equal(h.state().pet?.activity, 'idle');
+  assert.equal(readFileSync(h.filename, 'utf8'), before.memos);
+  assert.equal(readFileSync(join(directory, 'worktime.json'), 'utf8'), before.work);
+  const restarted = harness(directory, localTime(10, 5));
+  try {
+    assert.deepEqual(restarted.state().appearance, { scale: 0.75, characterId: 'chuchu' });
+    assert.equal(restarted.state().pet?.activity, 'idle');
+    assert.equal(readFileSync(h.filename, 'utf8'), before.memos);
+    assert.equal(readFileSync(join(directory, 'worktime.json'), 'utf8'), before.work);
+  } finally { restarted.dispose(); }
+}));
+
+test('switching from a walking Chelsea to Chuchu discards the prior destination at the current position', () => fixture([], h => {
+  h.invoke('appearance', { scale: 1.25, characterId: 'chelsea' });
+  walkPet(h);
+  const position = h.controller.widget.getBounds();
+  assert.equal(h.invoke('appearance', { scale: 1.25, characterId: 'chuchu' }).ok, true);
+  assert.deepEqual(h.controller.widget.getBounds(), position);
+  assert.equal(h.state().pet?.activity, 'idle');
+  assert.equal(h.state().pet?.speed, 0);
+  assert.equal(h.state().pet?.distance, 0);
+  h.tick(50);
+  assert.deepEqual(h.controller.widget.getBounds(), position);
+  walkPet(h);
+  assert.equal(h.state().pet?.activity, 'walk');
+}));
+
+
+test('settings routes directly from IPC and context menus while work ticks preserve the memo navigation date', () => fixture([], h => {
+  h.send('panel-open', 'settings'); assert.equal(h.state().panelNavigation?.tab, 'settings');
+  h.send('context-menu'); h.menus.at(-1)!.select('설정');
+  assert.equal(h.state().panelNavigation?.tab, 'settings');
+  h.send('panel-open', 'memos');
+  assert.equal(h.state().panelNavigation?.memoDate, '2026-10-20');
+  const navigation = h.state().panelNavigation;
+  h.tick(1000); assert.deepEqual(h.state().panelNavigation, navigation);
+  h.setNow(new Date(2026, 9, 21, 0, 0).getTime());
+  h.send('panel-open', 'memos');
+  assert.equal(h.state().panelNavigation?.memoDate, '2026-10-21');
+}));
+
+test('an archived memo alarm navigates to its original date without acknowledging or moving the item', () => {
+  const item = { ...memo('어제 작성한 예약', '10:00', localTime(10, 0)), date: '2026-10-19' };
+  const directory = mkdtempSync(join(tmpdir(), 'companion-dated-alarm-'));
+  writeFileSync(join(directory, 'memos.json'), JSON.stringify({ version: 5, memos: [item] }));
+  const h = harness(directory, localTime(10, 0, 20));
+  try {
+    h.tick(); const bubble = reminder(h);
+    h.send('bubble-activate', bubble.id);
+    assert.equal(h.state().panelNavigation?.tab, 'memos');
+    assert.equal(h.state().panelNavigation?.memoDate, item.date);
+    assert.equal(reminder(h).id, bubble.id);
+    assert.equal(h.disk().memos[0].date, item.date);
+    assert.equal(h.disk().memos[0].reminder!.acknowledged, false);
+  } finally { h.dispose(); rmSync(directory, { recursive: true, force: true }); }
+});
