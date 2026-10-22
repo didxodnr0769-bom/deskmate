@@ -1,6 +1,6 @@
 # 구조와 구현 범위
 
-이 문서는 0.13.0 소스의 책임 분리와 데이터 계약을 설명합니다. 구현 여부와 실제 환경의 검증 완료 여부는 구분하며, 수행한 점검과 남은 수동 항목은 [검증 안내](verification.md)를 기준으로 확인합니다.
+이 문서는 0.14.0 소스의 책임 분리와 데이터 계약을 설명합니다. 구현 여부와 실제 환경의 검증 완료 여부는 구분하며, 수행한 점검과 남은 수동 항목은 [검증 안내](verification.md)를 기준으로 확인합니다.
 
 ## 현재 프로세스 구조
 
@@ -43,7 +43,7 @@ renderer
 | `src/shared/pet-behavior.ts` | 첼시·츄츄의 목적지·가감속·몸돌리기·휴식 행동과 보행 거리 상태 |
 | `src/renderer/characters/pet-animation.ts`, `pet-sprites.ts`, `sprite-pet.ts` | 공통 프레임 선택·자산별 로딩·윤곽·발밑 정렬과 캐릭터 구성 |
 | `src/shared/chat.ts` | Provider와 무관한 대화 상태·메시지·길이 제한 |
-| `src/renderer/ChatPanel.tsx`, `shortcut.ts` | 이력·질문·취소·새 대화, 대화 단축키 설정 |
+| `src/renderer/ChatPanel.tsx`, `SettingsPanel.tsx`, `shortcut.ts` | 대화 이력·질문·취소·새 대화, 자유 이동·표시·숨기기 단축키 설정 |
 | `src/renderer/main.tsx`, `widget-interaction.ts` | 캐릭터·관리 패널, 말풍선 진입, 좌클릭·우클릭·Control+클릭 |
 | `src/renderer/MemoPanel.tsx`, `SettingsPanel.tsx` | 날짜별 메모·예약 편집, 표시·단축키 설정 |
 | `src/renderer/characters/`, `character-runtime.ts` | 기본 5종 외형·포즈·선택 registry, 공통 장면·HP·클릭 윤곽 |
@@ -70,7 +70,7 @@ AI 말풍선은 대화 창, 메모 알림 말풍선은 메모 탭의 해당 관�
 
 `AppearanceService`는 `appearance.json`에 `{ version: 1, settings: { scale, characterId } }`를 권한 `0600`의 임시 파일·이름 변경으로 저장합니다. 기본 배율은 1, 종류는 `rock`입니다. `rock`·`cat`·`rabbit`·`chelsea`·`chuchu`를 선택할 수 있고 종류와 크기를 재실행 후에도 유지합니다. 이전 크기 전용 설정은 원본을 바로 교체하지 않고 돌멩이로 읽습니다. 저장 실패는 설정·창을 바꾸지 않고 재시도를 허용합니다. 손상·미지원 파일은 덮어쓰지 않습니다. 설정 변경은 panel main frame만 요청합니다.
 
-대화 창은 420×600이며 캐릭터를 따라 이동하지 않습니다. 기본 단축키는 `CommandOrControl+Shift+Return`이고 대화 창 설정에서 바꿉니다. 숨기기 단축키는 `CommandOrControl+Shift+Space`이며 설정 탭에서 바꿉니다. 자유 이동 스위치는 캐릭터 탭에 있습니다. 충돌하면 기존 등록을 유지합니다. 위치·이동·단축키는 실행 중 상태입니다.
+대화 창은 420×600이며 캐릭터를 따라 이동하지 않습니다. 기본 단축키는 `CommandOrControl+Shift+Return`이며 변경 UI·IPC는 제공하지 않습니다. 숨기기 단축키는 `CommandOrControl+Shift+Space`이며 설정 탭에서 바꿉니다. 자유 이동 스위치는 설정 탭에 있습니다. 충돌하면 기존 등록을 유지합니다. 위치·이동·단축키는 실행 중 상태입니다.
 
 ## 근무시간 계산과 저장
 
@@ -145,7 +145,7 @@ v1의 ISO UTC `reminderAt`은 읽는 Mac의 로컬 `HH:mm`으로 바꿉니다. v
 
 대화의 메모 명령은 `date` 생략 시 오늘만 대상으로 하고 다른 날짜는 명시합니다. 요약도 오늘의 미완료 할 일만 집계합니다. 대상 메모 검색이 여러 개면 후보를 제시하고 후속 번호로 선택합니다. 같은 전체 본문 후보가 여럿이면 번호를 다시 요구합니다. 후보의 ID와 날짜·내용·완료·일정·수정 상태를 대조하므로 선택 전에 변경된 항목에 오래된 요청을 적용하지 않습니다. 날짜를 생략한 후보 선택이 자정을 넘으면 다시 요청하도록 합니다.
 
-신뢰된 chat main frame만 연결 검사·질문·새 대화·대화 단축키 변경 IPC를 호출합니다. 취소는 chat·widget에서 요청 ID를 검사합니다. 직접 메모·근무 변경 IPC는 panel에 한정하며 대화 명령은 별도의 검증된 main 서비스 경로를 사용합니다. 한 번에 한 연결 검사 또는 질문만 실행합니다. 취소·종료·새 대화 후 늦은 결과는 명령 실행·상태·말풍선을 바꾸지 못합니다.
+신뢰된 chat main frame만 연결 검사·질문·새 대화 IPC를 호출합니다. 취소는 chat·widget에서 요청 ID를 검사합니다. 직접 메모·근무 변경 IPC는 panel에 한정하며 대화 명령은 별도의 검증된 main 서비스 경로를 사용합니다. 한 번에 한 연결 검사 또는 질문만 실행합니다. 취소·종료·새 대화 후 늦은 결과는 명령 실행·상태·말풍선을 바꾸지 못합니다.
 
 질문 중에는 조용한 **응답 생성 중…** 말풍선을 표시합니다. 접기는 표시만 숨기고 취소는 요청을 종료합니다. 메모 알림이 먼저 표시되고 대기 AI 말풍선은 그 뒤에 표시합니다.
 
