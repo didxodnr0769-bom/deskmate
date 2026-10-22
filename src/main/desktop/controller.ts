@@ -148,8 +148,6 @@ export class DesktopController {
       ? this.chatService.cancel(requestId) : { ok: false, error: '허용되지 않은 요청입니다.' });
     ipcMain.handle('companion:chat-new', event => this.trusted(event, 'chat')
       ? this.chatService.newConversation() : { ok: false, error: '허용되지 않은 요청입니다.' });
-    ipcMain.handle('companion:chat-shortcut', (event, value: unknown) => this.trusted(event, 'chat')
-      ? this.registerChatShortcut(value) : { ok: false, error: '허용되지 않은 요청입니다.' });
     ipcMain.handle('companion:shortcut', (event, value) => this.trusted(event, 'panel') ? this.registerShortcut(value) : { ok: false, error: '허용되지 않은 요청입니다.' });
     ipcMain.handle('companion:work-schedule', (event, value: unknown) => this.trusted(event, 'panel')
       ? this.applyWorkSchedule(value) : { ok: false, error: '허용되지 않은 요청입니다.' });
@@ -641,13 +639,13 @@ export class DesktopController {
     return { ok: true };
   }
 
-  registerChatShortcut(value: unknown): CommandResult {
+  private registerChatShortcut(value: unknown): CommandResult {
     const fail = (error: string) => { this.state.chatShortcutError = error; this.publish(); return { ok: false, error }; };
     if (typeof value !== 'string' || value.length > 100 || !/(Command|Control|Alt|Option|Super)/.test(value)) return fail('보조 키와 함께 단축키를 지정해 주세요.');
     if (value === this.state.chatShortcut && this.state.chatShortcutRegistered) return { ok: true };
     if (value !== this.state.chatShortcut && globalShortcut.isRegistered(value)) return fail('이미 등록한 단축키와 겹칩니다. 다른 조합을 선택해 주세요.');
     try {
-      if (!globalShortcut.register(value, () => this.openChat())) return fail('이미 사용 중인 단축키입니다. 메뉴 막대에서 대화하기를 열거나 다른 조합을 선택해 주세요.');
+      if (!globalShortcut.register(value, () => this.openChat())) return fail('이미 사용 중인 단축키입니다. 캐릭터나 메뉴 막대에서 대화하기를 열어 주세요.');
     } catch { return fail('사용할 수 없는 단축키 조합입니다.'); }
     if (this.state.chatShortcutRegistered && this.state.chatShortcut !== value) globalShortcut.unregister(this.state.chatShortcut);
     this.state.chatShortcut = value;

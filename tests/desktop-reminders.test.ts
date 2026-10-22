@@ -131,7 +131,7 @@ function harness(directory: string, initialNow: number, agentProvider?: AgentPro
     assert.ok(callback, `IPC handle is registered: ${channel}`);
     return callback(source, value) as T;
   };
-  const invoke = <T = CommandResult>(channel: string, value?: unknown, surface: Surface = (channel === 'agent-check' || ['chat-ask', 'chat-cancel', 'chat-new', 'chat-shortcut'].includes(channel)) ? 'chat' : 'panel'): T =>
+  const invoke = <T = CommandResult>(channel: string, value?: unknown, surface: Surface = (channel === 'agent-check' || ['chat-ask', 'chat-cancel', 'chat-new'].includes(channel)) ? 'chat' : 'panel'): T =>
     invokeFrom<T>(channel, value, event(surface));
   return {
     controller, screen, filename, event, invoke, invokeFrom, shortcuts, menus,
@@ -589,18 +589,17 @@ test('chat shortcut has an independent callback and cannot replace the visibilit
   await chatFixture(async (h) => {
     const initial = h.state();
     assert.equal(initial.chatShortcutRegistered, true);
-    assert.equal(h.invoke('chat-shortcut', initial.shortcut).ok, false);
+    assert.equal(h.hasHandler('chat-shortcut'), false);
     assert.equal(h.state().chatShortcut, initial.chatShortcut);
     assert.equal(h.invoke('shortcut', initial.chatShortcut).ok, false);
     h.shortcuts.get(initial.chatShortcut)!();
     assert.equal(h.state().chatOpen, true);
-    assert.equal(h.invoke('chat-shortcut', 'Command+Alt+J').ok, true);
-    assert.equal(h.shortcuts.has(initial.chatShortcut), false);
+    assert.equal(h.shortcuts.has(initial.chatShortcut), true);
     assert.equal(h.shortcuts.has(initial.shortcut), true);
     h.shortcuts.get(initial.shortcut)!();
     assert.equal(h.state().chatOpen, false);
     assert.equal(h.state().visible, false);
-    h.shortcuts.get('Command+Alt+J')!();
+    h.shortcuts.get(initial.chatShortcut)!();
     assert.equal(h.state().chatOpen, true);
   });
 });
@@ -715,15 +714,11 @@ test('AI bubble navigation preserves the active request and history and stale bu
   });
 });
 
-test('only the chat main frame can change the conversation shortcut', () => {
+test('conversation shortcut configuration IPC is absent while the fixed shortcut remains registered', () => {
   fixture([], h => {
-    const before = h.state().chatShortcut;
-    assert.equal(h.invoke('chat-shortcut', 'Command+Alt+K', 'panel').ok, false);
-    assert.equal(h.invoke('chat-shortcut', 'Command+Alt+K', 'widget').ok, false);
-    assert.equal(h.invokeFrom<CommandResult>('chat-shortcut', 'Command+Alt+K', h.event('chat', true)).ok, false);
-    assert.equal(h.state().chatShortcut, before);
-    assert.equal(h.invoke('chat-shortcut', 'Command+Alt+K', 'chat').ok, true);
-    assert.equal(h.state().chatShortcut, 'Command+Alt+K');
+    assert.equal(h.hasHandler('chat-shortcut'), false);
+    assert.equal(h.state().chatShortcut, 'CommandOrControl+Shift+Return');
+    assert.equal(h.shortcuts.has(h.state().chatShortcut), true);
   });
 });
 

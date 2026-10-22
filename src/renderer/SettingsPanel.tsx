@@ -34,6 +34,10 @@ export function SettingsPanel({ state, companion }: { state: CompanionState; com
   }
 
   return <section className="settings-card app-settings" aria-label="앱 설정" data-testid="app-settings">
+    <h2 className="setting-title">캐릭터 동작</h2>
+    <div className="setting-row"><label id="walking-label" className="setting-title">자유롭게 이동</label><button type="button" role="switch" aria-checked={state.walking} aria-labelledby="walking-label" className={`toggle ${state.walking ? 'on' : ''}`} data-testid="walking-toggle" onClick={() => companion.setWalking(!state.walking)}><span /></button></div>
+    <p className="field-hint">이동을 꺼도 제자리에서 쉬는 동작은 이어져요.</p>
+    <div className="setting-divider" />
     <h2 className="setting-title">표시 및 단축키</h2>
     <p className="field-hint">캐릭터를 숨기거나 단축키로 다시 표시할 수 있어요.</p>
       <button type="button" className="hide-button" data-testid="hide-companion" onClick={() => companion.toggleVisibility()}><svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8s2-4 6-4 6 4 6 4-2 4-6 4-6-4-6-4Z" stroke="currentColor" strokeWidth="1.2" /><path d="m3 13 10-10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>잠시 숨기기</button>

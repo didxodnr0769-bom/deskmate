@@ -66,7 +66,6 @@ export interface CompanionApi {
   openChat(): void;
   closeChat(): void;
   onChatFocus(listener: () => void): () => void;
-  setChatShortcut(shortcut: string): Promise<CommandResult>;
   askQuestion(question: string): Promise<CommandResult>;
   cancelQuestion(requestId: string): Promise<CommandResult>;
   onState(listener: (state: CompanionState) => void): () => void;

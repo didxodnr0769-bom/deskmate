@@ -447,7 +447,7 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
         <MemoPanel memos={state.memos} memoError={state.memoError} reminderError={state.reminderError} navigation={state.panelNavigation} companion={companion} />
       </div>
       <div role="tabpanel" id="appearance-tabpanel" aria-labelledby="appearance-tab" hidden={tab !== 'appearance'}>
-        <CharacterSettings settings={state.appearance} error={state.appearanceError} walking={state.walking} companion={companion} />
+        <CharacterSettings settings={state.appearance} error={state.appearanceError} companion={companion} />
       </div>
       <div role="tabpanel" id="settings-tabpanel" aria-labelledby="settings-tab" hidden={tab !== 'settings'}>
         <SettingsPanel state={state} companion={companion} />
@@ -463,7 +463,7 @@ function App() {
   const { state, error } = useCompanionState();
   if (error) return isWidget ? null : <main className="connection-message" role="alert">{error}</main>;
   if (!state) return isWidget ? null : <main className="connection-message" role="status">작은 동료를 불러오고 있어요…</main>;
-  return isWidget ? <Widget state={state} /> : isChat ? <main className="chat-window" data-testid="companion-chat"><ChatPanel characterName={getCharacterDefinition(state.appearance.characterId).label} chat={state.chat} companion={api} active={state.chatOpen} shortcut={state.chatShortcut} shortcutRegistered={state.chatShortcutRegistered} shortcutError={state.chatShortcutError} /></main> : <Panel state={state} companion={api} />;
+  return isWidget ? <Widget state={state} /> : isChat ? <main className="chat-window" data-testid="companion-chat"><ChatPanel characterName={getCharacterDefinition(state.appearance.characterId).label} chat={state.chat} companion={api} active={state.chatOpen} /></main> : <Panel state={state} companion={api} />;
 }
 
 createRoot(document.getElementById('root')!).render(<App />);

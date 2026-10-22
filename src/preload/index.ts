@@ -7,7 +7,6 @@ const api: CompanionApi = {
   newConversation: () => ipcRenderer.invoke('companion:chat-new'),
   openChat: () => send('companion:chat-open'),
   closeChat: () => send('companion:chat-close'),
-  setChatShortcut: (value) => ipcRenderer.invoke('companion:chat-shortcut', value),
   onChatFocus: (listener) => {
     const handler = () => listener();
     ipcRenderer.on('companion:chat-focus', handler);
