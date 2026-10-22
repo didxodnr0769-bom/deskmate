@@ -1,70 +1,67 @@
 # DeskMate
 
-화면 한쪽에서 함께하는 작은 macOS 데스크톱 동료입니다.
-캐릭터가 돌아다니며 퇴근까지의 진행률과 할 일을 알려주고, 원하면 AI와 대화할 수도 있습니다.
+**내 Agent와 함께 기능과 캐릭터를 만들어 쓰는 macOS 데스크톱 동료입니다.**
 
-<table>
-  <tr><th>데스크톱 동료</th><th>날짜별 할 일</th><th>AI 대화</th></tr>
-  <tr>
-    <td><img src="docs/images/companion.png" alt="HP와 말풍선을 표시하는 데스크톱 캐릭터" width="260" /></td>
-    <td><img src="docs/images/memos.png" alt="날짜를 선택해 할 일을 관리하는 메모 화면" width="260" /></td>
-    <td><img src="docs/images/chat.png" alt="전용 창에서 질문과 답변을 이어가는 대화 화면" width="260" /></td>
-  </tr>
-</table>
+저장소를 clone하고, 자신이 사용하는 코딩 Agent에 원하는 기능·외형·동작을 요청해 나만의 앱으로 발전시키는 프로젝트입니다.
+기본 캐릭터·퇴근 HP·날짜별 할 일·대화 기능은 커스터마이징을 시작할 수 있도록 준비한 출발점입니다.
 
-예제 메모와 데모 대화를 사용한 실제 앱 화면입니다.
+## 내 Agent로 시작하기
 
-## 할 수 있는 일
-
-- **데스크톱 펫** — 다섯 캐릭터와 네 가지 크기, 드래그와 자유 이동
-- **퇴근 HP** — 설정한 근무시간의 진행률을 다섯 단계 색상으로 표시
-- **날짜별 할 일** — 오늘 목록, 이전 기록, 완료·수정과 일회성·반복 알림
-- **AI 대화** — Codex CLI로 이야기를 이어가고 메모·근무시간 조회와 변경 요청
-- **AI로 커스터마이징** — 각자의 Agent로 캐릭터 외형·동작이나 연결 어댑터 수정
-
-## 시작하기
-
-macOS와 Node.js 24가 필요합니다. 저장소를 내려받아 실행하세요.
+macOS·Git·Node.js 24와 프로젝트 파일을 수정할 수 있는 Agent를 준비하세요.
 
 ```sh
 git clone https://github.com/didxodnr0769-bom/deskmate.git
 cd deskmate
 npm ci
-npm run dev
 ```
 
-메모·근무시간·캐릭터는 AI 연결 없이 사용할 수 있습니다.
-현재는 소스를 직접 빌드하는 방식이며, 설치용 앱 다운로드는 제공하지 않습니다.
+Codex·Claude Code·사용 중인 IDE Agent에서 **이 `deskmate` 폴더를 열고** 다음과 같이 요청하세요.
 
-## 기본 조작
+```text
+AGENTS.md와 docs/customization.md를 읽고 현재 구조를 파악해줘.
+기본 캐릭터는 유지하면서 다람쥐 캐릭터를 추가해줘.
+대기·좌우 걷기·잡기·놓기·알림 동작과 클릭 영역도 함께 맞춰줘.
+변경 후 관련 테스트와 빌드를 실행하고, 앱에서 확인할 항목을 알려줘.
+```
 
-| 조작 | 기능 |
-| --- | --- |
-| 캐릭터 클릭 / `⌘⇧Enter` | 대화 창 열기 |
-| 캐릭터 우클릭 / Control+클릭 | 근무·메모·캐릭터·설정 열기 |
-| 캐릭터 드래그 | 원하는 위치나 다른 모니터로 이동 |
-| `⌘⇧Space` | 숨기기·다시 표시 |
+변경한 앱은 `npm run dev`로 빌드·실행합니다. 이미 앱이 켜져 있다면 종료한 뒤 다시 실행하세요.
 
-캐릭터 종류·크기는 **캐릭터**, 자유 이동·숨기기 단축키는 **설정**에서 변경합니다.
+**[Agent 설치·로그인부터 프로젝트 열기, 사진 첨부와 기능 추가까지 → 커스터마이징 시작 안내](docs/customization.md)**
 
-## AI 연결은 선택
+## 무엇을 바꿀 수 있나요?
 
-[Codex CLI](https://developers.openai.com/codex/cli)를 설치하고 터미널에서 `codex login`을 실행하세요.
-대화 창에서 연결을 확인한 뒤 **“10분 뒤에 물 마시라고 알려줘”**처럼 요청할 수 있습니다.
-연결 조건과 데이터 전달 범위는 [사용 안내](docs/usage.md#ai-대화)에서 확인하세요.
+- **캐릭터 추가** — 내 반려동물 사진이나 원하는 모습으로 새 동료 만들기
+- **외형과 동작 수정** — 이동 방향, 걷기·쉬기·알림 반응을 캐릭터에 맞추기
+- **기능 확장** — 메모·근무·설정에 필요한 기능을 더하거나 새로운 도구 추가하기
+- **앱의 AI 연결 변경** — 내 Agent에 요청해 대화 연결 어댑터 교체하기
+
+## 기본 구성 예시
+
+<table>
+  <tr><th>데스크톱 동료</th><th>날짜별 할 일</th><th>앱 내 대화</th></tr>
+  <tr>
+    <td><img src="docs/images/companion.png" alt="HP와 말풍선을 표시하는 기본 동료 예시" width="260" /></td>
+    <td><img src="docs/images/memos.png" alt="커스터마이징 출발점인 메모 화면" width="260" /></td>
+    <td><img src="docs/images/chat.png" alt="선택적으로 사용하는 앱 내 대화 화면" width="260" /></td>
+  </tr>
+</table>
+
+예제 메모와 모의 연결의 데모 대화로 캡처한 실제 앱 화면입니다. 기본 기능의 조작법은 [사용 안내](docs/usage.md)를 참고하세요.
+
+소스를 수정하는 Agent는 clone한 프로젝트에서 사용합니다. 실행된 DeskMate 안의 대화 창은 메모·근무 조회와 변경을 돕는 선택 기능입니다.
+이 앱 내 대화를 쓰려면 별도로 Codex CLI를 준비하며, 자세한 내용은 [대화 연결 안내](docs/usage.md#ai-대화)에 있습니다.
 
 ## 더 알아보기
 
-- [사용법·알림·로컬 데이터·앱 만들기](docs/usage.md)
-- [캐릭터 바꾸기](docs/character-guide.md)
-- [AI 연결과 다른 Agent로 교체하기](docs/agent-provider-guide.md)
-- [구조와 구현 범위](docs/architecture.md)
-- [검증 결과와 남은 수동 점검](docs/verification.md)
-- [보안·데이터 처리와 공개 점검 범위](docs/security.md)
+- [처음부터 내 Agent로 커스터마이징하기](docs/customization.md)
+- [캐릭터 외형·동작 구현 가이드](docs/character-guide.md)
+- [앱 내 대화 연결을 교체하는 가이드](docs/agent-provider-guide.md)
+- [기본 사용법과 내 Mac용 앱 만들기](docs/usage.md)
+- [구조](docs/architecture.md) · [검증 결과](docs/verification.md) · [보안·데이터 처리](docs/security.md)
 
-소스를 수정할 때는 [AGENTS.md](AGENTS.md)와 [Agent 안내](.agents/README.md)를 먼저 읽어 주세요.
+Agent용 공통 작업 안내는 [AGENTS.md](AGENTS.md)와 [Agent 안내](.agents/README.md)에 있습니다.
+현재는 소스를 직접 빌드하는 방식이며 설치용 앱 다운로드는 제공하지 않습니다.
 
 ## 라이선스
 
-프로젝트 코드는 [MIT 라이선스](LICENSE)로 제공합니다. 캐릭터 이미지의 제작 정보와 적용 범위는 [이미지 안내](docs/assets.md)를 확인하세요.
-외부 구성요소에는 각자의 라이선스가 적용되며 [타사 소프트웨어 고지](THIRD_PARTY_NOTICES.md)를 함께 제공합니다.
+프로젝트 코드는 [MIT 라이선스](LICENSE)로 제공합니다. 이미지 출처·권리 범위는 [이미지 안내](docs/assets.md), 외부 구성요소는 [타사 소프트웨어 고지](THIRD_PARTY_NOTICES.md)를 확인하세요.
