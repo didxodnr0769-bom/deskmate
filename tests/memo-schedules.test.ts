@@ -87,7 +87,7 @@ test('relative once schedules preserve seconds and milliseconds and overdue rese
   assert.deepEqual(service.getDueReminders(), []);
   setNow(october(22, 12));
   assert.equal(open().getDueReminders()[0].dueAt, dueAt);
-  assert.equal(JSON.parse(readFileSync(filename, 'utf8')).version, 4);
+  assert.equal(JSON.parse(readFileSync(filename, 'utf8')).version, 5);
   const reopened = open();
   reopened.acknowledgeReminder(memo.id, dueAt);
   assert.equal(reopened.list()[0].completed, false);
@@ -192,7 +192,7 @@ test('v3 migration preserves overdue and acknowledged alarms with an exact priva
   const backup = join(dirname(filename), 'memos.v3.backup.json');
   assert.equal(readFileSync(backup, 'utf8'), source);
   assert.equal(statSync(backup).mode & 0o777, 0o600);
-  assert.equal(JSON.parse(readFileSync(filename, 'utf8')).version, 4);
+  assert.equal(JSON.parse(readFileSync(filename, 'utf8')).version, 5);
   assert.equal(open().getDueReminders().length, 1);
 }));
 

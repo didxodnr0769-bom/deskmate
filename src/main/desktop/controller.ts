@@ -1,7 +1,7 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, screen, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_SHORTCUT, DEFAULT_CHAT_SHORTCUT, CHAT_SIZE, PANEL_SIZE, type BriefingSettings, type CommandResult, type CompanionState, type HitRegion, type Motion, type NotificationBubble, type PanelTab, type Point, type Rect } from '../../shared/contracts';
+import { DEFAULT_SHORTCUT, DEFAULT_CHAT_SHORTCUT, CHAT_SIZE, PANEL_SIZE, type CommandResult, type CompanionState, type HitRegion, type Motion, type NotificationBubble, type PanelTab, type Point, type Rect } from '../../shared/contracts';
 import { DEFAULT_APPEARANCE, resizedWidgetBounds, sceneLayout, validAppearanceSettings, usesPetBehavior, widgetSize } from '../../shared/appearance';
 import { PetBehavior } from '../../shared/pet-behavior';
 import { AppearanceService } from '../features/appearance';
@@ -11,7 +11,7 @@ import { loadWorkSchedule, saveWorkSchedule } from '../domain/worktime-store';
 import { MemoService } from '../features/memos';
 import { ChatService } from '../features/chat';
 import { AppCommandService } from '../features/app-commands';
-import { DEFAULT_BRIEFING, validBriefingSettings, WorkBriefingService } from '../features/briefing';
+import { isMemoDate, localMemoDate } from '../../shared/memo-date';
 import { CodexProvider } from '../ai/codex';
 import type { AgentProvider } from '../ai/provider';
 import type { ChatState } from '../../shared/chat';
@@ -37,7 +37,6 @@ export class DesktopController {
   private lastPetPublish = 0;
   private readonly worktimeFile = join(app.getPath('userData'), 'worktime.json');
   private memoService: MemoService | null = null;
-  private briefingService: WorkBriefingService | null = null;
   private appearanceService: AppearanceService | null = null;
   private lastWorkRefresh = 0;
   private lastReminderRefresh = 0;
@@ -61,8 +60,6 @@ export class DesktopController {
       saveWorkSchedule: schedule => this.applyWorkSchedule(schedule),
       setWalking: enabled => this.setWalking(enabled),
       open: target => target === 'chat' ? this.openChat() : this.openPanel(target),
-      briefingSettings: () => this.state.briefingSettings,
-      configureBriefing: settings => this.configureBriefing(settings),
     });
     this.chatService = new ChatService(options.agentProvider ?? new CodexProvider(), next => this.onChatChange(next), commands);
     const display = screen.getPrimaryDisplay();
@@ -74,15 +71,11 @@ export class DesktopController {
     let memoError: string | null = null;
     try { this.memoService = new MemoService(join(app.getPath('userData'), 'memos.json')); }
     catch (error) { memoError = (error as Error).message; }
-    let briefingError: string | null = null;
-    try { this.briefingService = new WorkBriefingService(join(app.getPath('userData'), 'briefing.json')); }
-    catch { briefingError = '퇴근 전 알림 설정을 읽지 못했어요. 원본 파일은 유지합니다.'; }
     let appearanceError: string | null = null;
     try { this.appearanceService = new AppearanceService(join(app.getPath('userData'), 'appearance.json')); }
     catch { appearanceError = '캐릭터 설정을 읽지 못했어요. 원본 파일은 유지합니다.'; }
     this.state = {
       appearance: this.appearanceService?.settings ?? { ...DEFAULT_APPEARANCE }, appearanceError,
-      briefingSettings: this.briefingService?.settings ?? { ...DEFAULT_BRIEFING }, briefingError,
       chat: this.chatService.state, chatOpen: false, chatShortcut: DEFAULT_CHAT_SHORTCUT, chatShortcutRegistered: false, chatShortcutError: null, motion: 'idle', direction: 1, hp: workProgress.hp, workSchedule, workProgress, walking: true, visible: true,
       memos: this.memoService?.list() ?? [], memoError, reminderError: null,
       userHidden: false, panelOpen: false, panelNavigation: null, motionStartedAt: Date.now(), bubble: null,
@@ -162,8 +155,6 @@ export class DesktopController {
       ? this.applyWorkSchedule(value) : { ok: false, error: '허용되지 않은 요청입니다.' });
     ipcMain.handle('companion:appearance', (event, value: unknown) => this.trusted(event, 'panel')
       ? this.configureAppearance(value) : { ok: false, error: '허용되지 않은 요청입니다.' });
-    ipcMain.handle('companion:briefing-settings', (event, value: unknown) => this.trusted(event, 'panel')
-      ? this.configureBriefing(value) : { ok: false, error: '허용되지 않은 요청입니다.' });
     const memoCommand = (event: IpcMainInvokeEvent, action: (service: MemoService) => void) => this.trusted(event, 'panel')
       ? this.mutateMemos(action) : { ok: false, error: '허용되지 않은 요청입니다.' };
     const payload = (value: unknown): Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -176,7 +167,7 @@ export class DesktopController {
     listen('pointer-move', v => { if (isPoint(v)) this.movePointer(v); }, 'widget');
     listen('pointer-end', v => { if (isPoint(v)) this.endPointer(v); }, 'widget');
     listen('pointer-cancel', () => this.cancelPointer(), 'widget');
-    listen('panel-open', value => { if (value === undefined || value === 'work' || value === 'memos' || value === 'appearance') this.openPanel(value); });
+    listen('panel-open', value => { if (value === undefined || value === 'work' || value === 'memos' || value === 'appearance' || value === 'settings') this.openPanel(value); });
     listen('context-menu', () => this.showContextMenu(), 'widget');
     listen('bubble-activate', id => { if (typeof id === 'string') this.activateBubble(id); }, 'widget');
     listen('panel-close', () => this.closePanel());
@@ -184,7 +175,6 @@ export class DesktopController {
     listen('chat-close', () => this.closeChat(), 'chat');
     listen('visibility', () => this.toggleVisibility());
     listen('walking', v => { if (typeof v === 'boolean') this.setWalking(v); }, 'panel');
-    listen('preview-notification', () => this.previewNotification());
     ipcMain.handle('companion:bubble-dismiss', (event, id: unknown) => this.trusted(event, 'widget') && typeof id === 'string'
       ? this.dismissBubble(id) : { ok: false, error: '허용되지 않은 요청입니다.' });
     listen('quit', () => app.quit(), 'panel');
@@ -221,18 +211,6 @@ export class DesktopController {
     this.setMotion(this.restingMotion());
     this.cycleStartedAt = Date.now();
     this.publish();
-  }
-
-  private configureBriefing(value: unknown): CommandResult {
-    if (!validBriefingSettings(value)) return { ok: false, error: '퇴근 전 알림은 5~120분 전으로 설정해 주세요.' };
-    if (!this.briefingService) return { ok: false, error: this.state.briefingError || '퇴근 전 알림 설정을 읽지 못했어요.' };
-    try { this.briefingService.configure(value); }
-    catch { return { ok: false, error: '퇴근 전 알림 설정을 저장하지 못했어요. 다시 시도해 주세요.' }; }
-    this.state.briefingSettings = this.briefingService.settings;
-    this.state.briefingError = null;
-    this.refreshReminders();
-    this.publish();
-    return { ok: true };
   }
 
   private configureAppearance(value: unknown): CommandResult {
@@ -321,10 +299,11 @@ export class DesktopController {
     this.panel.setBounds(panelBounds(this.widget.getBounds(), this.currentDisplay().workArea, PANEL_SIZE));
   }
 
-  openPanel(tab?: PanelTab) {
+  openPanel(tab?: PanelTab, memoDate?: string) {
     this.closeContextMenu(true);
     this.cancelPointer();
-    if (tab) this.state.panelNavigation = { tab, sequence: (this.state.panelNavigation?.sequence ?? 0) + 1 };
+    if (tab) this.state.panelNavigation = { tab, sequence: (this.state.panelNavigation?.sequence ?? 0) + 1,
+      ...(tab === 'memos' ? { memoDate: isMemoDate(memoDate) ? memoDate : localMemoDate() } : {}) };
     this.state.userHidden = false;
     this.temporaryAlert = false;
     this.syncVisibility();
@@ -374,6 +353,7 @@ export class DesktopController {
       { label: '근무시간', click: () => this.openPanel('work') },
       { label: '메모', click: () => this.openPanel('memos') },
       { label: '캐릭터 설정', click: () => this.openPanel('appearance') },
+      { label: '설정', click: () => this.openPanel('settings') },
     ]);
     this.contextMenu = menu;
     this.setMotion(this.restingMotion());
@@ -403,7 +383,7 @@ export class DesktopController {
     const bubble = this.state.bubble;
     if (!bubble || bubble.id !== id) return;
     if (bubble.kind === 'chat' || bubble.kind === 'chat-loading') this.openChat();
-    else if (bubble.kind === 'reminder' || bubble.kind === 'briefing') this.openPanel('memos');
+    else if (bubble.kind === 'reminder') this.openPanel('memos', this.state.memos.find(memo => memo.id === bubble.memoId)?.date);
   }
 
   private syncVisibility() {
@@ -413,15 +393,9 @@ export class DesktopController {
     this.publish();
   }
 
-  previewNotification() {
-    // A manual preview must never replace an unacknowledged memo alarm.
-    if (this.state.bubble && this.state.bubble.kind !== 'preview') return;
-    this.showBubble({ id: randomUUID(), kind: 'preview', text: '알림 미리보기예요. 소리 없이 이렇게 알려드릴게요.' });
-  }
-
   private showBubble(bubble: NotificationBubble) {
     this.cancelPointer();
-    if (bubble.kind === 'preview' || bubble.kind === 'reminder' || bubble.kind === 'briefing') this.closePanel();
+    if (bubble.kind === 'reminder') this.closePanel();
     this.state.bubble = bubble;
     this.temporaryAlert = this.state.userHidden;
     this.syncVisibility();
@@ -443,17 +417,6 @@ export class DesktopController {
         this.state.reminderError = '알림 확인을 저장하지 못했어요. 다시 닫아 주세요.';
         this.publish();
         return { ok: false, error: this.state.reminderError };
-      }
-    }
-    if (bubble.kind === 'briefing') {
-      try {
-        if (!this.briefingService) throw new Error();
-        this.briefingService.acknowledge(bubble.occurrence);
-        this.state.briefingError = null;
-      } catch {
-        this.state.briefingError = '퇴근 전 알림 확인을 저장하지 못했어요. 다시 닫아 주세요.';
-        this.publish();
-        return { ok: false, error: this.state.briefingError };
       }
     }
     if (bubble.kind === 'chat-loading') {
@@ -497,31 +460,11 @@ export class DesktopController {
         this.setMotion(this.restingMotion());
         this.syncVisibility();
       }
-      this.presentBriefing(now);
       this.presentPendingChat();
     } catch {
       const error = '알림 예약을 저장하지 못했어요. 메모 파일을 확인해 주세요.';
       if (this.state.reminderError !== error) { this.state.reminderError = error; this.publish(); }
     }
-  }
-
-  private presentBriefing(now: number) {
-    if (!this.briefingService || !this.memoService) return;
-    const due = this.briefingService.due(this.state.workSchedule, this.state.memos, now);
-    const active = this.state.bubble;
-    if (active?.kind === 'briefing') {
-      if (due?.occurrence === active.occurrence) {
-        if (active.text !== due.text) { this.state.bubble = { ...active, text: due.text }; this.publish(); }
-        return;
-      }
-      this.state.bubble = null;
-      this.temporaryAlert = false;
-      this.setMotion(this.restingMotion());
-      this.syncVisibility();
-    }
-    if (!due || this.state.bubble?.kind === 'reminder' || this.contextMenu || this.gesture || this.releaseAt !== null) return;
-    if ((this.state.bubble?.kind === 'chat' || this.state.bubble?.kind === 'chat-loading') && !this.pendingChatBubble) this.pendingChatBubble = this.state.bubble;
-    this.showBubble({ id: randomUUID(), kind: 'briefing', occurrence: due.occurrence, text: due.text });
   }
 
   private clearChatBubbles() {
@@ -553,7 +496,7 @@ export class DesktopController {
   }
 
   private presentPendingChat() {
-    if (!this.pendingChatBubble || this.contextMenu || (this.state.bubble?.kind === 'reminder' || this.state.bubble?.kind === 'briefing') || this.gesture || this.releaseAt !== null) return;
+    if (!this.pendingChatBubble || this.contextMenu || this.state.bubble?.kind === 'reminder' || this.gesture || this.releaseAt !== null) return;
     const bubble = this.pendingChatBubble;
     this.pendingChatBubble = null;
     if (bubble.requestId !== this.state.chat.requestId) return;

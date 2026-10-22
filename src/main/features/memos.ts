@@ -2,13 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Memo, MemoDraft, MemoSchedule } from '../../shared/contracts';
+import { isMemoDate, localMemoDate } from '../../shared/memo-date';
 import { nextReminderAt, nextScheduledReminderAt, normalizeMemoSchedule, reminderScheduleTime } from '../domain/reminders';
 
 interface Reminder { dueAt: number; acknowledged: boolean }
 interface StoredMemo extends Memo { reminder: Reminder | null }
 export interface DueReminder { memoId: string; dueAt: number; text: string; time: string }
 
-const MAX_MEMOS = 500;
+const MAX_MEMOS_PER_DATE = 500;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ISO_TIME = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$/;
@@ -35,17 +36,19 @@ function legacyReminderTime(value: unknown): string | null {
   return `${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}`;
 }
 
-function parseDraft(value: unknown): MemoDraft {
+function parseDraft(value: unknown, defaultDate: string): MemoDraft & { date: string } {
   if (!isRecord(value) || typeof value.text !== 'string') throw new Error('메모 내용을 입력해 주세요.');
   const text = value.text.trim();
   if (text.length < 1 || text.length > 1000) throw new Error('메모 내용은 1자부터 1000자까지 입력해 주세요.');
-  if (value.schedule === null) return { text, reminderTime: null };
+  const date = value.date === undefined ? defaultDate : value.date;
+  if (!isMemoDate(date)) throw new Error('메모 날짜를 YYYY-MM-DD 형식으로 입력해 주세요.');
+  if (value.schedule === null) return { text, date, reminderTime: null };
   if (value.schedule !== undefined) {
     const schedule = normalizeMemoSchedule(value.schedule);
-    return { text, reminderTime: reminderScheduleTime(schedule), schedule };
+    return { text, date, reminderTime: reminderScheduleTime(schedule), schedule };
   }
   if (!validReminderTime(value.reminderTime)) throw new Error('메모 시각을 올바르게 입력해 주세요.');
-  return { text, reminderTime: value.reminderTime };
+  return { text, date, reminderTime: value.reminderTime };
 }
 
 function validTimestamp(value: unknown): value is number {
@@ -59,14 +62,16 @@ function cloneSchedule(schedule: MemoSchedule): MemoSchedule {
 function publicMemo({ reminder: _reminder, ...memo }: StoredMemo): Memo {
   return memo.schedule ? { ...memo, schedule: cloneSchedule(memo.schedule) } : { ...memo };
 }
-function parseStoredMemo(value: unknown, version: 1 | 2 | 3 | 4, now: number): StoredMemo {
+function parseStoredMemo(value: unknown, version: 1 | 2 | 3 | 4 | 5, now: number): StoredMemo {
   if (!isRecord(value) || typeof value.id !== 'string' || value.id.length !== 36 || !UUID.test(value.id)
     || typeof value.completed !== 'boolean' || !validTimestamp(value.createdAt) || !validTimestamp(value.updatedAt)) {
     throw new Error('잘못된 메모 형식입니다.');
   }
+  const date = version === 5 ? value.date : localMemoDate(value.createdAt);
+  if (!isMemoDate(date)) throw new Error('잘못된 메모 날짜입니다.');
   const draft = parseDraft(version === 1
-    ? { text: value.text, reminderTime: legacyReminderTime(value.reminderAt) }
-    : version < 4 ? { text: value.text, reminderTime: value.reminderTime } : value);
+    ? { text: value.text, reminderTime: legacyReminderTime(value.reminderAt), date }
+    : version < 4 ? { text: value.text, reminderTime: value.reminderTime, date } : { ...value, date }, date);
   if (value.text !== draft.text) throw new Error('잘못된 메모 내용입니다.');
   let reminder: Reminder | null = null;
   if (version >= 3) {
@@ -90,7 +95,7 @@ function parseStoredMemo(value: unknown, version: 1 | 2 | 3 | 4, now: number): S
 /** Owns memo data and durable one-shot or recurring reminders; presentation stays outside. */
 export class MemoService {
   private memos: StoredMemo[];
-  private legacySource: { version: 1 | 2 | 3; content: Buffer } | null = null;
+  private legacySource: { version: 1 | 2 | 3 | 4; content: Buffer } | null = null;
 
   constructor(private readonly filename: string, private readonly now: () => number = Date.now) {
     this.memos = this.load();
@@ -132,9 +137,9 @@ export class MemoService {
   }
 
   add(draft: unknown): Memo {
-    if (this.memos.length >= MAX_MEMOS) throw new Error('메모는 최대 500개까지 저장할 수 있습니다.');
-    const fields = parseDraft(draft);
     const now = this.now();
+    const fields = parseDraft(draft, localMemoDate(now));
+    this.assertDateCapacity(fields.date);
     const memo: StoredMemo = { id: randomUUID(), ...fields, completed: false, createdAt: now, updatedAt: now, reminder: this.schedule(fields, false, now) };
     this.commit([...this.memos, memo]);
     return publicMemo(memo);
@@ -142,8 +147,9 @@ export class MemoService {
 
   update(id: unknown, draft: unknown): void {
     const index = this.indexOf(id);
-    const fields = parseDraft(draft);
     const current = this.memos[index];
+    const fields = parseDraft(draft, current.date);
+    this.assertDateCapacity(fields.date, current.id);
     const now = this.now();
     const sameSchedule = fields.reminderTime === current.reminderTime
       && JSON.stringify(fields.schedule ?? null) === JSON.stringify(current.schedule ?? null);
@@ -171,6 +177,12 @@ export class MemoService {
     this.commit(this.memos.filter((_memo, i) => i !== index));
   }
 
+  private assertDateCapacity(date: string, excludingId?: string): void {
+    if (this.memos.filter(memo => memo.date === date && memo.id !== excludingId).length >= MAX_MEMOS_PER_DATE) {
+      throw new Error('메모는 날짜별로 최대 500개까지 저장할 수 있습니다.');
+    }
+  }
+
   private indexOf(id: unknown): number {
     if (typeof id !== 'string' || id.length === 0) throw new Error('메모를 선택해 주세요.');
     const index = this.memos.findIndex(memo => memo.id === id);
@@ -191,14 +203,20 @@ export class MemoService {
     }
     try {
       const value: unknown = JSON.parse(content.toString('utf8'));
-      if (!isRecord(value) || (value.version !== 1 && value.version !== 2 && value.version !== 3 && value.version !== 4) || !Array.isArray(value.memos) || value.memos.length > MAX_MEMOS) {
+      if (!isRecord(value) || (value.version !== 1 && value.version !== 2 && value.version !== 3 && value.version !== 4 && value.version !== 5) || !Array.isArray(value.memos)) {
         throw new Error('잘못된 저장 형식입니다.');
       }
       const version = value.version;
       const now = this.now();
       const memos = value.memos.map(memo => parseStoredMemo(memo, version, now));
       if (new Set(memos.map(memo => memo.id.toLowerCase())).size !== memos.length) throw new Error('중복된 메모입니다.');
-      if (version !== 4) this.legacySource = { version, content };
+      const counts = new Map<string, number>();
+      for (const memo of memos) {
+        const count = (counts.get(memo.date) ?? 0) + 1;
+        if (count > MAX_MEMOS_PER_DATE) throw new Error('날짜별 메모 수가 너무 많습니다.');
+        counts.set(memo.date, count);
+      }
+      if (version !== 5) this.legacySource = { version, content };
       return memos;
     } catch {
       throw new Error('저장된 메모가 올바르지 않습니다. 원본 파일을 확인해 주세요.');
@@ -227,7 +245,7 @@ export class MemoService {
   }
 
   private commit(next: StoredMemo[]): void {
-    const content = JSON.stringify({ version: 4, memos: next });
+    const content = JSON.stringify({ version: 5, memos: next });
     if (Buffer.byteLength(content, 'utf8') > MAX_FILE_BYTES) throw new Error('메모 데이터가 너무 큽니다. 메모를 줄여 주세요.');
     const temporary = `${this.filename}.${randomUUID()}.tmp`;
     try {

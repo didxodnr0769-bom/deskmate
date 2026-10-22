@@ -30,8 +30,8 @@ function CharacterPreview({ character }: { character: CharacterDefinition }) {
   return <canvas ref={canvasRef} className="character-preview" aria-hidden="true" />;
 }
 
-export function CharacterSettings({ settings, error, companion }: {
-  settings: AppearanceSettings; error: string | null; companion: CompanionApi;
+export function CharacterSettings({ settings, error, walking, companion }: {
+  settings: AppearanceSettings; error: string | null; walking: boolean; companion: CompanionApi;
 }) {
   const [saving, setSaving] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -50,6 +50,9 @@ export function CharacterSettings({ settings, error, companion }: {
   }
 
   return <section className="settings-card character-settings" aria-label="캐릭터 설정" data-testid="character-settings" aria-busy={saving}>
+    <div className="setting-row"><label id="walking-label" className="setting-title">자유롭게 이동</label><button type="button" role="switch" aria-checked={walking} aria-labelledby="walking-label" className={`toggle ${walking ? 'on' : ''}`} data-testid="walking-toggle" onClick={() => companion.setWalking(!walking)}><span /></button></div>
+    <p className="field-hint">이동을 꺼도 제자리에서 쉬는 동작은 이어져요.</p>
+    <div className="setting-divider" />
     <h2 className="setting-title">함께할 동료</h2>
     <div className="character-options" role="group" aria-label="기본 캐릭터 선택">{CHARACTER_OPTIONS.map(option => <button type="button" key={option.id} aria-pressed={settings.characterId === option.id} disabled={saving || !!error} data-testid={`character-${option.id}`} onClick={() => void apply({ ...settings, characterId: option.id })}><CharacterPreview character={getCharacterDefinition(option.id)} /><span>{option.label}</span></button>)}</div>
     <div className="setting-divider" />

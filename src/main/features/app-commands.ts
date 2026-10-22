@@ -1,5 +1,6 @@
-import type { BriefingSettings, CommandResult, Memo, MemoDraft, MemoSchedule, PanelTab, WorkSchedule } from '../../shared/contracts';
+import type { CommandResult, Memo, MemoDraft, MemoSchedule, PanelTab, WorkSchedule } from '../../shared/contracts';
 import { defaultEndTime, getWorkProgress, localDateKey, validateWorkSchedule } from '../domain/worktime';
+import { isMemoDate, localMemoDate } from '../../shared/memo-date';
 
 export interface AppCommandPorts {
   memos(): Memo[];
@@ -10,24 +11,21 @@ export interface AppCommandPorts {
   saveWorkSchedule(schedule: WorkSchedule): CommandResult;
   setWalking(enabled: boolean): void;
   open(target: PanelTab | 'chat'): void;
-  briefingSettings(): BriefingSettings;
-  configureBriefing(settings: BriefingSettings): CommandResult;
 }
 type Command = Record<string, unknown> & { name: string };
-type Pending = { command: Command; candidates: { id: string; revision: string; text: string }[] };
+type Pending = { command: Command; date: string; implicitDate: boolean; candidates: { id: string; revision: string; text: string }[] };
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
 const allowed: Record<string, string[]> = {
-  'memo.list': ['query', 'completed'], 'memo.add': ['text', 'reminder'],
-  'memo.update': ['target', 'text', 'reminder'], 'memo.complete': ['target', 'completed'],
+  'memo.list': ['query', 'completed', 'date'], 'memo.add': ['text', 'reminder', 'date'],
+  'memo.update': ['target', 'text', 'reminder', 'date'], 'memo.complete': ['target', 'completed', 'date'],
   'work.get': [], 'work.update': ['date', 'startTime', 'endTime'],
   'character.walk': ['enabled'], 'ui.open': ['target'], 'summary.get': [],
-  'briefing.configure': ['enabled', 'beforeMinutes'],
 };
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === 'object' && !Array.isArray(value); }
 function text(value: unknown, maximum = 1000): value is string { return typeof value === 'string' && value.trim().length > 0 && value.length <= maximum; }
 function clock(value: unknown): value is string { return typeof value === 'string' && /^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(value); }
 const normalize = (value: string) => value.normalize('NFKC').toLocaleLowerCase('ko-KR').replace(/\s+/g, ' ').trim();
-const revision = (memo: Memo) => JSON.stringify([memo.text, memo.updatedAt, memo.completed, memo.reminderTime, memo.schedule]);
+const revision = (memo: Memo) => JSON.stringify([memo.date, memo.text, memo.updatedAt, memo.completed, memo.reminderTime, memo.schedule]);
 const excerpt = (value: string, maximum = 250) => value.length > maximum ? value.slice(0, maximum) + '…' : value;
 function done(result: CommandResult) { if (!result.ok) throw new Error(result.error || '변경을 저장하지 못했어요. 다시 시도해 주세요.'); }
 
@@ -65,20 +63,22 @@ export class AppCommandService {
   }
 
   private execute(command: Command, selected?: Memo): string {
+    const date = command.date === undefined ? localMemoDate(this.now()) : command.date;
+    if (command.name.startsWith('memo.') && !isMemoDate(date)) return '메모 날짜를 YYYY-MM-DD 형식의 올바른 날짜로 알려 주세요.';
     switch (command.name) {
       case 'memo.list': {
         if (command.query !== undefined && !text(command.query)) return '찾을 메모 내용을 입력해 주세요.';
         if (command.completed !== undefined && typeof command.completed !== 'boolean') return '완료 여부를 확인해 주세요.';
         const query = command.query === undefined ? '' : normalize(command.query as string);
-        const items = this.ports.memos().filter(memo => (!query || normalize(memo.text).includes(query))
+        const items = this.ports.memos().filter(memo => memo.date === date && (!query || normalize(memo.text).includes(query))
           && (command.completed === undefined || memo.completed === command.completed));
-        return this.memoList(items, '조건에 맞는 메모가 없어요.');
+        return String(date) + ' 메모\n' + this.memoList(items, '조건에 맞는 메모가 없어요.');
       }
       case 'memo.add': {
         if (!text(command.text)) return '메모 내용은 1~1,000자로 입력해 주세요.';
         const reminder = this.reminder(command.reminder);
-        done(this.ports.addMemo({ text: command.text.trim(), ...reminder }));
-        return `메모를 추가했어요: ${command.text.trim()}${this.reminderDescription(reminder)}`;
+        done(this.ports.addMemo({ text: command.text.trim(), date: date as string, ...reminder }));
+        return `${date} 메모를 추가했어요: ${command.text.trim()}${this.reminderDescription(reminder)}`;
       }
       case 'memo.update':
       case 'memo.complete': {
@@ -88,16 +88,16 @@ export class AppCommandService {
         if (command.text !== undefined && !text(command.text)) return '메모 내용은 1~1,000자로 입력해 주세요.';
         // Validate all changes before asking which target to use or touching storage.
         const reminder = Object.hasOwn(command, 'reminder') ? this.reminder(command.reminder) : null;
-        const target = selected ?? this.findTarget(command);
+        const target = selected ?? this.findTarget(command, date as string);
         if (typeof target === 'string') return target;
         if (command.name === 'memo.complete') {
           done(this.ports.completeMemo(target.id, command.completed as boolean));
-          return `“${target.text}” 메모의 ${command.completed ? '완료를 기록했어요.' : '완료를 취소했어요.'}`;
+          return `${target.date} “${target.text}” 메모의 ${command.completed ? '완료를 기록했어요.' : '완료를 취소했어요.'}`;
         }
-        const draft: MemoDraft = { text: command.text === undefined ? target.text : (command.text as string).trim(),
+        const draft: MemoDraft = { date: target.date, text: command.text === undefined ? target.text : (command.text as string).trim(),
           reminderTime: target.reminderTime, ...(target.schedule ? { schedule: target.schedule } : {}), ...reminder };
         done(this.ports.updateMemo(target.id, draft));
-        return `메모를 수정했어요: ${draft.text}${this.reminderDescription(draft)}`;
+        return `${target.date} 메모를 수정했어요: ${draft.text}${this.reminderDescription(draft)}`;
       }
       case 'work.get': return this.workStatus();
       case 'work.update': return this.updateWork(command);
@@ -106,19 +106,12 @@ export class AppCommandService {
         this.ports.setWalking(command.enabled);
         return command.enabled ? '자유 이동을 켰어요. 말풍선을 닫으면 다시 움직여요.' : '자유 이동을 멈췄어요.';
       case 'ui.open':
-        if (!['chat', 'work', 'memos', 'appearance'].includes(command.target as string)) return '대화·근무·메모·캐릭터 중 열 화면을 알려 주세요.';
+        if (!['chat', 'work', 'memos', 'appearance', 'settings'].includes(command.target as string)) return '대화·근무·메모·캐릭터·설정 중 열 화면을 알려 주세요.';
         this.ports.open(command.target as PanelTab | 'chat');
-        return `${{ chat: '대화', work: '근무', memos: '메모', appearance: '캐릭터' }[command.target as PanelTab | 'chat']} 화면을 열었어요.`;
+        return `${{ chat: '대화', work: '근무', memos: '메모', appearance: '캐릭터', settings: '설정' }[command.target as PanelTab | 'chat']} 화면을 열었어요.`;
       case 'summary.get': {
-        const pending = this.ports.memos().filter(memo => !memo.completed);
-        return `${this.workStatus()}\n\n남은 할 일 ${pending.length}개\n${this.memoList(pending, '모든 할 일을 완료했어요.')}`;
-      }
-      case 'briefing.configure': {
-        if (typeof command.enabled !== 'boolean' || (command.beforeMinutes !== undefined
-          && (!Number.isInteger(command.beforeMinutes) || Number(command.beforeMinutes) < 5 || Number(command.beforeMinutes) > 120))) return '퇴근 전 알림은 5~120분 전으로 설정해 주세요.';
-        const settings = { enabled: command.enabled, beforeMinutes: command.beforeMinutes === undefined ? this.ports.briefingSettings().beforeMinutes : Number(command.beforeMinutes) };
-        done(this.ports.configureBriefing(settings));
-        return settings.enabled ? `퇴근 ${settings.beforeMinutes}분 전 남은 할 일 알림을 켰어요.` : '퇴근 전 남은 할 일 알림을 껐어요.';
+        const pending = this.ports.memos().filter(memo => memo.date === localMemoDate(this.now()) && !memo.completed);
+        return `${this.workStatus()}\n\n오늘 남은 할 일 ${pending.length}개\n${this.memoList(pending, '모든 할 일을 완료했어요.')}`;
       }
       default: return '지원하지 않는 앱 명령이에요.';
     }
@@ -145,14 +138,14 @@ export class AppCommandService {
     throw new Error();
   }
 
-  private findTarget(command: Command): Memo | string {
+  private findTarget(command: Command, date: string): Memo | string {
     const query = normalize(command.target as string);
-    const candidates = this.ports.memos().filter(memo => normalize(memo.text).includes(query));
+    const candidates = this.ports.memos().filter(memo => memo.date === date && normalize(memo.text).includes(query));
     if (!candidates.length) return '해당 메모를 찾지 못했어요. 메모 목록이나 정확한 내용을 알려 주세요.';
     if (candidates.length === 1) return candidates[0];
     if (candidates.length > 20) return `해당하는 메모가 ${candidates.length}개예요. 검색어를 더 구체적으로 알려 주세요.`;
-    this.pending = { command, candidates: candidates.map(memo => ({ id: memo.id, revision: revision(memo), text: memo.text })) };
-    return `어느 메모를 바꿀까요? 번호나 전체 메모 내용을 알려 주세요.\n${candidates.map((memo, index) => `${index + 1}. ${excerpt(memo.text)}`).join('\n')}`;
+    this.pending = { command, date, implicitDate: command.date === undefined, candidates: candidates.map(memo => ({ id: memo.id, revision: revision(memo), text: memo.text })) };
+    return `어느 메모를 바꿀까요? 번호나 전체 메모 내용을 알려 주세요.\n${candidates.map((memo, index) => `${index + 1}. [${memo.date}] ${excerpt(memo.text)}`).join('\n')}`;
   }
 
   private selectedPending(question: string): string | null {
@@ -172,10 +165,14 @@ export class AppCommandService {
       index = exact[0] ?? -1;
     }
     if (index < 0 || index >= pending.candidates.length) return null;
+    if (pending.implicitDate && pending.date !== localMemoDate(this.now())) {
+      this.pending = null;
+      return '날짜가 바뀌었어요. 변경할 날짜와 메모를 다시 알려 주세요.';
+    }
     this.pending = null;
     const previous = pending.candidates[index];
     const current = this.ports.memos().find(memo => memo.id === previous.id);
-    if (!current || revision(current) !== previous.revision) return '그 메모가 변경되었어요. 현재 메모 내용을 기준으로 다시 요청해 주세요.';
+    if (!current || current.date !== pending.date || revision(current) !== previous.revision) return '그 메모가 변경되었어요. 현재 메모 내용을 기준으로 다시 요청해 주세요.';
     return this.execute(pending.command, current);
   }
 
@@ -203,7 +200,7 @@ export class AppCommandService {
   private memoList(items: Memo[], empty: string): string {
     if (!items.length) return empty;
     const shown = items.slice(0, 20);
-    return `${shown.map((memo, index) => `${index + 1}. ${memo.completed ? '[완료] ' : ''}${excerpt(memo.text)}${this.reminderDescription(memo)}`).join('\n')}${items.length > shown.length ? `\n총 ${items.length}개 중 ${shown.length}개를 표시했어요. 검색어로 범위를 좁혀 주세요.` : ''}`;
+    return `${shown.map((memo, index) => `${index + 1}. [${memo.date}] ${memo.completed ? '[완료] ' : ''}${excerpt(memo.text)}${this.reminderDescription(memo)}`).join('\n')}${items.length > shown.length ? `\n총 ${items.length}개 중 ${shown.length}개를 표시했어요. 검색어로 범위를 좁혀 주세요.` : ''}`;
   }
   private reminderDescription(draft: Pick<MemoDraft, 'reminderTime' | 'schedule'>): string {
     const schedule: MemoSchedule | null | undefined = draft.schedule;
