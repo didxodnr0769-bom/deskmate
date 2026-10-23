@@ -28,7 +28,8 @@ export interface Memo extends MemoDraft {
 }
 export type NotificationBubble = { id: string; text: string; kind: 'reminder'; memoId: string; dueAt: number }
   | { id: string; text: string; kind: 'chat'; requestId: string }
-  | { id: string; text: string; kind: 'chat-loading'; requestId: string };
+  | { id: string; text: string; kind: 'chat-loading'; requestId: string }
+  | { id: string; text: string; kind: 'casual'; expiresAt: number };
 export interface CompanionState {
   appearance: AppearanceSettings;
   appearanceError: string | null;

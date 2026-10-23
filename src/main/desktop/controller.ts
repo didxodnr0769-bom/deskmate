@@ -6,7 +6,8 @@ import { DEFAULT_APPEARANCE, resizedWidgetBounds, sceneLayout, validAppearanceSe
 import { PetBehavior } from '../../shared/pet-behavior';
 import { AppearanceService } from '../features/appearance';
 import { advanceRoam, clampBounds, hitTest, nativePosition, panelBounds, sanitizeHitRegions } from '../domain/geometry';
-import { getWorkProgress, validateWorkSchedule } from '../domain/worktime';
+import { advanceWorkSchedule, getWorkProgress, validateWorkSchedule } from '../domain/worktime';
+import { CasualConversation, CASUAL_LIFETIME_MS } from '../domain/casual-conversation';
 import { loadWorkSchedule, saveWorkSchedule } from '../domain/worktime-store';
 import { MemoService } from '../features/memos';
 import { ChatService } from '../features/chat';
@@ -17,6 +18,7 @@ import type { AgentProvider } from '../ai/provider';
 import type { ChatState } from '../../shared/chat';
 
 type Gesture = { start: Point; origin: Rect; dragging: boolean };
+const ROLLOVER_ERROR = '근무 날짜를 갱신하지 못했어요. 저장 경로를 확인해 주세요. 잠시 후 다시 시도합니다.';
 const isPoint = (v: unknown): v is Point => !!v && typeof v === 'object' &&
   ['x', 'y'].every(k => typeof (v as Record<string, unknown>)[k] === 'number' && Number.isFinite((v as Record<string, number>)[k]) && Math.abs((v as Record<string, number>)[k]) < 1e6);
 
@@ -39,6 +41,8 @@ export class DesktopController {
   private memoService: MemoService | null = null;
   private appearanceService: AppearanceService | null = null;
   private lastWorkRefresh = 0;
+  private rolloverRetryAt = 0;
+  private readonly casual = new CasualConversation(Date.now());
   private lastReminderRefresh = 0;
   private lastTick = Date.now();
   private cycleStartedAt = Date.now();
@@ -67,6 +71,11 @@ export class DesktopController {
     let storageError: string | null = null;
     try { workSchedule = loadWorkSchedule(this.worktimeFile); }
     catch (error) { storageError = (error as Error).message; }
+    const advanced = advanceWorkSchedule(workSchedule, new Date());
+    if (advanced !== workSchedule) {
+      try { saveWorkSchedule(this.worktimeFile, advanced!); workSchedule = advanced; }
+      catch { storageError = ROLLOVER_ERROR; this.rolloverRetryAt = Date.now() + 60_000; }
+    }
     const workProgress = getWorkProgress(workSchedule, new Date());
     let memoError: string | null = null;
     try { this.memoService = new MemoService(join(app.getPath('userData'), 'memos.json')); }
@@ -185,6 +194,7 @@ export class DesktopController {
     try { saveWorkSchedule(this.worktimeFile, schedule); }
     catch { return { ok: false, error: '근무 시간을 저장하지 못했습니다. 다시 시도해 주세요.' }; }
     this.state.workSchedule = schedule;
+    this.rolloverRetryAt = 0;
     this.state.error = null;
     this.refreshWorkProgress();
     this.refreshReminders();
@@ -270,7 +280,13 @@ export class DesktopController {
     this.publish();
   }
 
-  private restingMotion(): Motion { return this.state.bubble && this.state.bubble.kind !== 'chat-loading' ? 'notify' : 'idle'; }
+  private restingMotion(): Motion { return this.state.bubble && !['chat-loading', 'casual'].includes(this.state.bubble.kind) ? 'notify' : 'idle'; }
+
+  private clearCasualBubble() {
+    if (this.state.bubble?.kind !== 'casual') return;
+    this.state.bubble = null;
+    this.publish();
+  }
 
   private currentDisplay() { return screen.getAllDisplays().find(d => d.id === this.state.displayId) ?? screen.getPrimaryDisplay(); }
   private refreshDisplays() {
@@ -298,6 +314,7 @@ export class DesktopController {
   }
 
   openPanel(tab?: PanelTab, memoDate?: string) {
+    this.clearCasualBubble();
     this.closeContextMenu(true);
     this.cancelPointer();
     if (tab) this.state.panelNavigation = { tab, sequence: (this.state.panelNavigation?.sequence ?? 0) + 1,
@@ -316,6 +333,7 @@ export class DesktopController {
   closePanel() { this.panel.hide(); this.state.panelOpen = false; this.cycleStartedAt = Date.now(); this.publish(); }
 
   openChat() {
+    this.clearCasualBubble();
     this.closeContextMenu(true);
     this.cancelPointer();
     if (!this.state.chatOpen) {
@@ -334,6 +352,8 @@ export class DesktopController {
   closeChat() { this.chat.hide(); this.state.chatOpen = false; this.publish(); }
 
   toggleVisibility() {
+    this.clearCasualBubble();
+    this.casual.reset(Date.now());
     this.closeContextMenu();
     this.state.userHidden = this.state.visible;
     this.temporaryAlert = false;
@@ -345,6 +365,7 @@ export class DesktopController {
 
   private showContextMenu() {
     if (this.disposed || !this.state.visible || this.contextMenu) return;
+    this.clearCasualBubble();
     this.cancelPointer();
     const menu = Menu.buildFromTemplate([
       { label: '대화하기', click: () => this.openChat() },
@@ -380,7 +401,7 @@ export class DesktopController {
   private activateBubble(id: string) {
     const bubble = this.state.bubble;
     if (!bubble || bubble.id !== id) return;
-    if (bubble.kind === 'chat' || bubble.kind === 'chat-loading') this.openChat();
+    if (bubble.kind === 'chat' || bubble.kind === 'chat-loading' || bubble.kind === 'casual') this.openChat();
     else if (bubble.kind === 'reminder') this.openPanel('memos', this.state.memos.find(memo => memo.id === bubble.memoId)?.date);
   }
 
@@ -398,7 +419,7 @@ export class DesktopController {
     this.temporaryAlert = this.state.userHidden;
     this.syncVisibility();
     this.state.motionStartedAt = Date.now();
-    this.state.motion = bubble.kind === 'chat-loading' ? 'idle' : 'notify';
+    this.state.motion = bubble.kind === 'chat-loading' || bubble.kind === 'casual' ? 'idle' : 'notify';
     this.publish();
   }
 
@@ -477,6 +498,7 @@ export class DesktopController {
   }
 
   private onChatChange(next: ChatState) {
+    this.clearCasualBubble();
     const previous = this.state.chat;
     this.state.chat = next;
     if (next.conversationId !== previous.conversationId || next.status === 'cancelled' || next.status === 'error') this.clearChatBubbles();
@@ -504,6 +526,7 @@ export class DesktopController {
 
   private beginPointer(point: Point) {
     if (this.contextMenu) return;
+    this.clearCasualBubble();
     this.releaseAt = null;
     this.gesture = { start: point, origin: this.widget.getBounds(), dragging: false };
     this.setMotion(this.restingMotion());
@@ -566,8 +589,18 @@ export class DesktopController {
   private tick() {
     const now = Date.now(), delta = Math.max(0, Math.min(0.1, (now - this.lastTick) / 1000));
     this.lastTick = now;
+    if (this.state.bubble?.kind === 'casual' && now >= this.state.bubble.expiresAt) this.clearCasualBubble();
     if (now < this.lastWorkRefresh || now - this.lastWorkRefresh >= 1000) this.refreshWorkProgress();
     if (now < this.lastReminderRefresh || now - this.lastReminderRefresh >= 1000) this.refreshReminders(now);
+    const greeting = this.casual.poll(now, this.state.visible && !this.state.userHidden && !this.state.panelOpen
+      && !this.state.chatOpen && !this.state.bubble && !this.pendingChatBubble && !this.contextMenu
+      && !this.gesture && this.releaseAt === null && this.state.chat.status !== 'thinking'
+      && this.state.chat.connection.status !== 'checking' && this.state.pet?.activity !== 'sleep');
+    if (greeting) {
+      // Check the exact greeting instant, even between the regular one-second alarm polls.
+      this.refreshReminders(now);
+      if (!this.state.bubble && !this.pendingChatBubble) this.showBubble({ id: randomUUID(), kind: 'casual', text: greeting, expiresAt: now + CASUAL_LIFETIME_MS });
+    }
     if (!this.state.visible) return;
     if (this.releaseAt !== null) {
       if (now >= this.releaseAt) { this.releaseAt = null; this.cycleStartedAt = now; this.setMotion(this.restingMotion()); }
@@ -589,7 +622,7 @@ export class DesktopController {
         const motionChanged = this.state.motion !== motion;
         if (motionChanged) { this.state.motion = motion; this.state.motionStartedAt = now; }
         if (next.transitioned || directionChanged || motionChanged
-          || (next.animation.activity === 'walk' && now - this.lastPetPublish >= 100)) {
+          || (next.animation.activity === 'walk' && now - this.lastPetPublish >= (this.state.appearance.characterId === 'chelsea' ? 30 : 100))) {
           this.lastPetPublish = now;
           this.publish();
         }
@@ -617,11 +650,27 @@ export class DesktopController {
 
   private refreshWorkProgress() {
     this.lastWorkRefresh = Date.now();
+    let changed = false;
+    const schedule = this.state.workSchedule;
+    const advanced = advanceWorkSchedule(schedule, new Date());
+    if (advanced !== schedule && (this.lastWorkRefresh >= this.rolloverRetryAt || this.lastWorkRefresh < this.rolloverRetryAt - 60_000)) {
+      try {
+        saveWorkSchedule(this.worktimeFile, advanced!);
+        this.state.workSchedule = advanced;
+        this.rolloverRetryAt = 0;
+        if (this.state.error === ROLLOVER_ERROR) this.state.error = null;
+        changed = true;
+      } catch {
+        changed = this.state.error !== ROLLOVER_ERROR;
+        this.state.error = ROLLOVER_ERROR;
+        this.rolloverRetryAt = this.lastWorkRefresh + 60_000;
+      }
+    }
     const next = getWorkProgress(this.state.workSchedule, new Date());
     const previous = this.state.workProgress;
     this.state.workProgress = next;
     this.state.hp = next.hp;
-    if (next.hp !== previous.hp || next.phase !== previous.phase || next.remainingMinutes !== previous.remainingMinutes || next.isOvernight !== previous.isOvernight) this.publish();
+    if (changed || next.hp !== previous.hp || next.phase !== previous.phase || next.remainingMinutes !== previous.remainingMinutes || next.isOvernight !== previous.isOvernight) this.publish();
   }
 
   registerShortcut(value: unknown): { ok: boolean; error?: string } {
@@ -655,7 +704,7 @@ export class DesktopController {
     return { ok: true };
   }
 
-  onResume() { this.lastTick = Date.now(); this.refreshWorkProgress(); this.handleDisplays(); this.refreshReminders(); }
+  onResume() { this.lastTick = Date.now(); this.casual.reset(this.lastTick); this.clearCasualBubble(); this.refreshWorkProgress(); this.handleDisplays(); this.refreshReminders(); }
   dispose() {
     this.disposed = true;
     this.closeContextMenu();

@@ -63,6 +63,8 @@ test('gait distance follows actual travel and stays consistent across character 
       assert.equal(next.animation.sampledAt, h.now());
       const actual = Math.hypot(next.position.x - start.x, next.position.y - start.y) / scale;
       assert.ok(Math.abs(next.animation.distance - actual) < 1e-8);
+      assert.ok(Math.abs(next.animation.strideDistance! - Math.abs(next.position.x - start.x) / scale) < 1e-8,
+        'profile gait follows horizontal movement even on a diagonal journey');
       assert.ok(next.animation.distance >= previousDistance);
       previousDistance = next.animation.distance;
     }

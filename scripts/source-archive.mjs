@@ -6,6 +6,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 export const SOURCE_ENTRIES = Object.freeze([
   'src', 'tests', 'scripts',
   'docs/architecture.md', 'docs/character-guide.md',
+  'docs/chelsea-gait.md',
   'docs/agent-provider-guide.md', 'docs/verification.md', '.agents/README.md',
   'docs/usage.md', 'docs/assets.md', 'docs/security.md', 'docs/customization.md',
   'docs/images/companion.png', 'docs/images/memos.png', 'docs/images/chat.png', 'docs/images/settings.png',

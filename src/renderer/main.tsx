@@ -358,6 +358,14 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [scheduleSaved, setScheduleSaved] = useState(false);
+  const scheduleDirty = useRef(false);
+  const [today, setToday] = useState(localDate);
+  useEffect(() => {
+    const refresh = () => setToday(localDate());
+    const timer = window.setInterval(refresh, 1000);
+    window.addEventListener('focus', refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', refresh); };
+  }, []);
   const savedDate = state.workSchedule?.date;
   const savedStart = state.workSchedule?.startTime;
   const savedEnd = state.workSchedule?.endTime;
@@ -370,14 +378,16 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
       ? '퇴근 완료'
       : `${phase === 'before' ? '출근 전 · ' : ''}퇴근까지 ${remainingTime(remainingMinutes)}`;
 
-  // Progress updates every second. Only a changed saved schedule may replace drafts.
+  // Automatic date rollover and chat changes must never overwrite unfinished edits.
   useEffect(() => {
-    setDate(savedDate || localDate());
+    if (scheduleDirty.current || savingSchedule) return;
+    setDate(savedDate || today);
     setStartTime(savedStart || '');
     setEndTime(savedEnd || '');
-  }, [savedDate, savedStart, savedEnd]);
+  }, [savedDate, savedStart, savedEnd, today, savingSchedule]);
 
   function editSchedule() {
+    scheduleDirty.current = true;
     setScheduleSaved(false);
     setScheduleError(null);
   }
@@ -395,7 +405,7 @@ function Panel({ state, companion }: { state: CompanionState; companion: Compani
     try {
       const result = await companion.setWorkSchedule({ date, startTime, endTime });
       if (!result.ok) setScheduleError(result.error || '출퇴근 시간을 저장하지 못했어요. 다시 적용해 주세요.');
-      else setScheduleSaved(true);
+      else { scheduleDirty.current = false; setScheduleSaved(true); }
     } catch {
       setScheduleError('출퇴근 시간을 저장하지 못했어요. 다시 적용해 주세요.');
     } finally { setSavingSchedule(false); }

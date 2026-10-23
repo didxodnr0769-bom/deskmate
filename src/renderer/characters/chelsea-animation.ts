@@ -10,3 +10,5 @@ export const selectChelseaFrame = createPetFrameSelector((direction, amount) => 
     : amount < 0.75 ? { clip: 'turn', row: 3, column: 5 }
       : { clip: 'turn', row: 2, column: 0 };
 });
+
+export const selectChelseaOriginalFrame = selectChelseaFrame;

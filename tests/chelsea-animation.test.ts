@@ -20,7 +20,7 @@ function rgba(width: number, height: number, opaque: (x: number, y: number) => b
   return data;
 }
 
-test('Chelsea uses separately drawn left/right profiles and advances the gait by traveled distance', () => {
+test('legacy fallback atlas uses separately drawn left/right profiles and advances the gait by traveled distance', () => {
   const right = state('walk');
   assert.deepEqual(selectChelseaFrame(right, epoch), { clip: 'walk-right', row: 2, column: 0 });
   const left = state('walk', { pet: { ...right.pet!, facing: -1 } });

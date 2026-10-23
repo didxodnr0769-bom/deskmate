@@ -13,6 +13,8 @@ export interface PetAnimationState {
   speed: number;
   distance: number;
   sampledAt: number;
+  previousWalkDistance?: number;
+  strideDistance?: number;
 }
 
 interface PetStep {
@@ -56,7 +58,8 @@ export class PetBehavior {
 
   private pose(activity: PetActivity, now: number, durationMs: number, facing: 1 | -1,
     fromFacing = facing, distance = 0): PetAnimationState {
-    return { activity, fromActivity: this.animation?.activity, facing, fromFacing, startedAt: now, durationMs, speed: 0, distance, sampledAt: now };
+    return { activity, fromActivity: this.animation?.activity, facing, fromFacing, startedAt: now, durationMs, speed: 0, distance, strideDistance: 0, sampledAt: now,
+      ...(this.animation?.activity === 'walk' ? { previousWalkDistance: this.animation.strideDistance ?? this.animation.distance } : {}) };
   }
 
   private unit(): number {
@@ -114,6 +117,7 @@ export class PetBehavior {
         y: journey.start.y + (journey.target.y - journey.start.y) * amount };
       const travelled = Math.hypot(next.x - position.x, next.y - position.y) / Math.max(0.05, input.scale);
       this.animation = { ...this.animation, distance: this.animation.distance + travelled,
+        strideDistance: (this.animation.strideDistance ?? 0) + Math.abs(next.x - position.x) / Math.max(0.05, input.scale),
         speed: seconds > 0 ? travelled / seconds : 0, sampledAt: now };
       if (journey.elapsedMs >= journey.durationMs) this.rest(now);
       return { position: next, animation: this.animation, transitioned: previous !== this.animation.activity || previousStartedAt !== this.animation.startedAt };

@@ -12,6 +12,7 @@ const { stageSourceArchive } = await import(new URL('../scripts/source-archive.m
 
 const sharedFiles = [
   'docs/architecture.md', 'docs/character-guide.md', 'docs/agent-provider-guide.md',
+  'docs/chelsea-gait.md',
   'docs/verification.md', '.agents/README.md', 'AGENTS.md', 'CLAUDE.md', 'README.md',
   'package.json', 'package-lock.json', 'LICENSE', 'THIRD_PARTY_NOTICES.md',
   '.gitignore', '.nvmrc', 'tsconfig.json', 'vite.config.ts', 'index.html',

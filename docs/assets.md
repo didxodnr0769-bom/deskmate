@@ -7,6 +7,7 @@
 - 돌멩이·검은 고양이·크림 토끼와 메뉴 아이콘은 프로젝트의 Canvas 코드로 그립니다.
 - 첼시와 츄츄는 제공된 동물 사진의 특징을 참고해 AI로 생성한 스프라이트입니다. 원본 사진·영상은 저장소와 배포 파일에 포함하지 않습니다.
 - 생성 이미지는 `src/renderer/assets/chelsea-pet.png`와 `chuchu-pet.png`, 제작 프롬프트는 같은 폴더의 `*.prompts.txt`에 있습니다. 생성 출처 메타데이터는 유지합니다.
+- 첼시의 추가 관절 재료 `chelsea-walk-rig.png`는 기존 배포 이미지를 참고해 AI로 생성했습니다. 제작 지침은 `chelsea-walk-rig.prompts.txt`에 있습니다. 촬영·모션 캡처 자료가 아니며 실제 보행 위상은 코드가 정합니다. 단일 몸통 시작·정지 자세 `chelsea-turn.png` 역시 같은 참고 이미지의 AI 생성 편집 결과이며 `chelsea-turn.prompts.txt`에 제작 지침을 보존했습니다. 거절된 `chelsea-walk.png`는 현재 자산에서 제거했고 Git 이력에 남깁니다. 개인 사진은 추가하지 않았습니다.
 
 ## 예제 화면
 

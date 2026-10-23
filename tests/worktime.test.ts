@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { defaultEndTime, getWorkProgress, localDateKey, validateWorkSchedule } from '../src/main/domain/worktime';
+import { advanceWorkSchedule, defaultEndTime, getWorkProgress, localDateKey, validateWorkSchedule } from '../src/main/domain/worktime';
 import type { WorkSchedule } from '../src/main/domain/worktime';
 
 const dayShift: WorkSchedule = { date: '2026-10-19', startTime: '09:00', endTime: '18:00' };
@@ -109,4 +109,40 @@ test('a shift ending at midnight finishes on the following local calendar day', 
     hp: 100, remainingMinutes: 0, phase: 'finished', isOvernight: true,
   });
   assert.equal(getWorkProgress(midnight, at(23, 59, 59, 999)).hp, 99);
+});
+
+test('completed work dates advance at local midnight, across weekends, months and years without changing times', () => {
+  for (const [date, now] of [
+    ['2026-10-19', new Date(2026, 9, 20, 0)],
+    ['2026-10-23', new Date(2026, 9, 26, 8)],
+    ['2026-12-31', new Date(2027, 0, 1, 0)],
+    ['2028-02-28', new Date(2028, 1, 29, 0)],
+  ] as const) {
+    const schedule = { ...dayShift, date };
+    const result = advanceWorkSchedule(schedule, now)!;
+    assert.deepEqual(result, { ...schedule, date: localDateKey(now) });
+    assert.equal(schedule.date, date, 'the saved input is never mutated');
+  }
+});
+
+test('future work dates and active overnight shifts stay anchored until the exact end', () => {
+  const night = { date: '2026-12-31', startTime: '22:00', endTime: '07:00' };
+  assert.equal(advanceWorkSchedule(night, new Date(2027, 0, 1, 0)), night);
+  assert.equal(advanceWorkSchedule(night, new Date(2027, 0, 1, 6, 59, 59, 999)), night);
+  assert.deepEqual(advanceWorkSchedule(night, new Date(2027, 0, 1, 7)), { ...night, date: '2027-01-01' });
+  assert.equal(advanceWorkSchedule(night, new Date(2026, 11, 1)), night);
+  assert.equal(advanceWorkSchedule(dayShift, at(23, 59)), dayShift);
+  assert.equal(advanceWorkSchedule(null, at(0)), null);
+  assert.equal(advanceWorkSchedule(dayShift, new Date(NaN)), dayShift);
+});
+
+test('date advancement uses local boundaries through DST transitions', { skip: process.env.TZ !== 'America/New_York' }, () => {
+  for (const now of [new Date(2026, 2, 8, 0), new Date(2026, 10, 1, 0)]) {
+    const previous = new Date(now); previous.setDate(previous.getDate() - 1);
+    const shift = { ...dayShift, date: localDateKey(previous) };
+    assert.equal(advanceWorkSchedule(shift, new Date(now.getTime() - 1)), shift);
+    assert.equal(advanceWorkSchedule(shift, now)?.date, localDateKey(now));
+  }
+  const night = { date: '2026-10-31', startTime: '22:00', endTime: '07:00' };
+  assert.equal(advanceWorkSchedule(night, new Date('2026-11-01T01:30:00-05:00')), night);
 });
