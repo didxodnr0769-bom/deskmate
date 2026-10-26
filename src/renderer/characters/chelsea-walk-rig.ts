@@ -4,9 +4,58 @@ import { traceAlphaSilhouette, type AlphaSilhouette } from './pet-animation';
 import { createPetSpriteLoader, type PetSpriteFrame } from './pet-sprites';
 import { extractSpriteComponent, splitSpriteComponents } from './sprite-components';
 
-interface Part { image: HTMLCanvasElement; outline: AlphaSilhouette }
+interface Part { image: HTMLCanvasElement; outline: AlphaSilhouette; coatBounds?: AlphaSilhouette['bounds'] }
 const WIDTH = 200, HEIGHT = 120, ORIGIN = { x: 100, y: 114 };
 const STOP_SETTLE = 420, STOP_TOTAL = 980;
+
+/** Stable, source-colored fur. Prepared once in coat UVs, never regenerated per pose. */
+function featherCoat(part: Part): Part {
+  const w = part.image.width, h = part.image.height, pad = Math.ceil(w * 0.22);
+  const image = document.createElement('canvas'); image.width = w + pad * 2; image.height = h;
+  const ctx = image.getContext('2d', { willReadFrequently: true })!;
+  ctx.drawImage(part.image, pad, 0);
+  const pixels = ctx.getImageData(0, 0, image.width, h).data;
+  const color = (x: number, y: number, lift = 0) => {
+    const p = (Math.round(y) * image.width + Math.round(x)) * 4;
+    return `rgb(${Math.min(255, pixels[p] + lift)} ${Math.min(255, pixels[p + 1] + lift)} ${Math.min(255, pixels[p + 2] + lift)})`;
+  };
+  const vary = (n: number) => {
+    n = Math.imul(n ^ (n >>> 16), 0x45d9f3b); n = Math.imul(n ^ (n >>> 16), 0x45d9f3b);
+    return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+  };
+  // Short overlapping locks follow the existing fur down the leg. Padding is
+  // outside the core coat bounds; the renderer sets the plush limb volume.
+  for (let i = 0; i < 18; i++) {
+    const y = Math.round(h * (0.13 + i * 0.043));
+    let left = image.width, right = 0;
+    for (let x = pad; x < pad + w; x++) if (pixels[(y * image.width + x) * 4 + 3] >= 128) {
+      left = Math.min(left, x); right = Math.max(right, x);
+    }
+    if (right <= left) continue;
+    for (const side of [-1, 1]) {
+      const edge = side < 0 ? left : right, root = edge - side * w * 0.025;
+      const reach = w * (0.11 + vary(i * 13 + (side > 0 ? 7 : 1)) * 0.065);
+      const flow = h * (0.045 + vary(i * 23 + 11) * 0.035);
+      ctx.fillStyle = color(edge - side * w * 0.05, y);
+      ctx.beginPath(); ctx.moveTo(root, y);
+      ctx.quadraticCurveTo(edge + side * reach * 0.65, y + flow * 0.3, edge + side * reach, y + flow);
+      ctx.quadraticCurveTo(edge + side * reach * 0.15, y + flow * 0.7, root, y + flow * 0.4);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  // A few low-contrast strands retain the long-haired coat's grain after the
+  // texture is reduced to desktop size; all colors come from the same source.
+  ctx.lineCap = 'round'; ctx.lineWidth = Math.max(1, w * 0.024); ctx.globalAlpha = 0.5;
+  for (let i = 0; i < 24; i++) {
+    const x = pad + w * (0.3 + i % 3 * 0.17 + vary(i * 31) * 0.035);
+    const y = h * (0.16 + Math.floor(i / 3) * 0.085);
+    if (pixels[(Math.round(y) * image.width + Math.round(x)) * 4 + 3] < 200) continue;
+    ctx.strokeStyle = color(x, y, 12);
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo(x + w * 0.018, y + h * 0.022, x - w * 0.012, y + h * 0.055); ctx.stroke();
+  }
+  const outline = traceAlphaSilhouette(ctx.getImageData(0, 0, image.width, h).data, image.width, h);
+  return outline?.polygons[0] ? { image, outline, coatBounds: { ...part.outline.bounds, x: part.outline.bounds.x + pad } } : part;
+}
 
 /** Fixed anatomical root + articulated image parts. Never recenters each walk pose on its bbox. */
 export function createChelseaWalkRig(assetUrl: string, turnUrl?: string) {
@@ -87,7 +136,7 @@ export function createChelseaWalkRig(assetUrl: string, turnUrl?: string) {
               const pixels = dc.getImageData(0, 0, image.width, image.height);
               const outline = traceAlphaSilhouette(pixels.data, image.width, image.height);
               if (!outline?.polygons[0]) throw new Error('missing continuous leg coat');
-              return { image, outline };
+              return featherCoat({ image, outline });
             });
             parts = loaded;
           }
@@ -127,16 +176,18 @@ export function createChelseaWalkRig(assetUrl: string, turnUrl?: string) {
       ctx.drawImage(part.image, 0, 0); ctx.restore();
     };
     const drawCoat = (leg: ChelseaGait['legs'][number], front = false) => {
-      const part = skins[leg.fore ? 0 : 1], bounds = part.outline.bounds;
+      const part = skins[leg.fore ? 0 : 1], bounds = part.outline.bounds, coat = part.coatBounds ?? bounds;
       const map = (p: Point) => {
-        const t = Math.max(0, Math.min(1, (p.y - bounds.y) / bounds.height)), u = 1 - t;
+        const t = Math.max(0, Math.min(1, (p.y - coat.y) / coat.height)), u = 1 - t;
         const center = { x: u * u * leg.root.x + 2 * u * t * leg.joint.x + t * t * leg.ankle.x,
           y: u * u * leg.root.y + 2 * u * t * leg.joint.y + t * t * leg.ankle.y };
         const tangent = { x: 2 * (u * (leg.joint.x - leg.root.x) + t * (leg.ankle.x - leg.joint.x)),
           y: 2 * (u * (leg.joint.y - leg.root.y) + t * (leg.ankle.y - leg.joint.y)) };
         const length = Math.hypot(tangent.x, tangent.y);
-        const width = u * u * (leg.fore ? 18 : 23) + 2 * u * t * 12 + t * t * 8.5;
-        const across = ((p.x - bounds.x) / bounds.width - 0.5) * width;
+        // Keep the accepted joint path, but carry the long-haired coat's volume
+        // through the lower leg instead of pinching to a bare-looking ankle.
+        const width = u * u * (leg.fore ? 18 : 23) + 2 * u * t * (leg.fore ? 17 : 19) + t * t * (leg.fore ? 14 : 15);
+        const across = ((p.x - coat.x) / coat.width - 0.5) * width;
         return { x: center.x + tangent.y / length * across, y: center.y - tangent.x / length * across };
       };
       ctx.save();
@@ -168,7 +219,7 @@ export function createChelseaWalkRig(assetUrl: string, turnUrl?: string) {
     };
     const drawPaw = (leg: ChelseaGait['legs'][number]) => {
       const shade = leg.near ? 1 : 0.86;
-      const paw = art[leg.fore ? 6 : 7], bounds = paw.outline.bounds, w = leg.fore ? 12 : 13, h = leg.fore ? 10.5 : 11;
+      const paw = art[leg.fore ? 6 : 7], bounds = paw.outline.bounds, w = leg.fore ? 16 : 17, h = leg.fore ? 12 : 12.5;
       const map = (p: Point) => ({ x: leg.paw.x + ((p.x - bounds.x) / bounds.width * w - w / 2) * gait.facing,
         y: leg.paw.y - h + (p.y - bounds.y) / bounds.height * h });
       draw(paw, map, () => { ctx.translate(leg.paw.x, leg.paw.y); ctx.scale(gait.facing, 1);
