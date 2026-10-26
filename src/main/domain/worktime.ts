@@ -55,7 +55,15 @@ function localTimestamp(date: { year: number; month: number; day: number }, minu
   return moment.getTime();
 }
 
-/** The saved start date remains authoritative after midnight and across app restarts. */
+/** Advance only completed past shifts; an active overnight shift and future dates stay anchored. */
+export function advanceWorkSchedule(schedule: WorkSchedule | null, now: Date): WorkSchedule | null {
+  const today = localDateKey(now);
+  if (!today || !validateWorkSchedule(schedule) || schedule.date >= today
+      || getWorkProgress(schedule, now).phase !== 'finished') return schedule;
+  return { ...schedule, date: today };
+}
+
+/** Calculate one anchored shift. Date advancement is a separate, persisted operation. */
 export function getWorkProgress(schedule: WorkSchedule | null, now: Date): WorkProgress {
   const unset: WorkProgress = { hp: 0, remainingMinutes: null, phase: 'unset', isOvernight: false };
   if (!validateWorkSchedule(schedule) || !(now instanceof Date) || !Number.isFinite(now.getTime())) return unset;

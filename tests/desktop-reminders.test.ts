@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
+import { CHELSEA_CONTACTS, CHELSEA_STRIDE, getChelseaGait } from '../src/renderer/characters/chelsea-gait';
 import { buildSync } from 'esbuild';
 import type { CommandResult, CompanionState, Memo, Rect } from '../src/shared/contracts';
 import type { AgentProvider } from '../src/main/ai/provider';
@@ -181,6 +182,105 @@ function showAlarm(h: Harness) {
 function close(h: Harness, id: string): CommandResult {
   return h.invoke('bubble-dismiss', id, 'widget');
 }
+
+test('work date and persisted HP schedule advance at midnight, on resume and on restart', () => fixture([], (h, directory) => {
+  h.invoke('work-schedule', { date: '2026-10-20', startTime: '09:00', endTime: '18:00' });
+  h.setNow(localTime(23, 59, 59)); h.tick(1000);
+  assert.equal(h.state().workSchedule?.date, '2026-10-21');
+  assert.equal(h.state().workProgress.phase, 'before');
+  assert.equal(h.state().hp, 0);
+  const filename = join(directory, 'worktime.json');
+  assert.equal(JSON.parse(readFileSync(filename, 'utf8')).schedule.date, '2026-10-21');
+  h.setNow(localTime(24 * 4 + 8, 0)); h.controller.onResume();
+  assert.equal(h.state().workSchedule?.date, '2026-10-24');
+  const restart = harness(directory, localTime(24 * 6 + 8, 0));
+  try { assert.equal(restart.state().workSchedule?.date, '2026-10-26'); }
+  finally { restart.dispose(); }
+}));
+
+test('overnight work remains anchored until completion and future dates survive clock changes', () => fixture([], h => {
+  h.invoke('work-schedule', { date: '2026-10-20', startTime: '22:00', endTime: '07:00' });
+  h.setNow(localTime(24, 0)); h.tick();
+  assert.equal(h.state().workSchedule?.date, '2026-10-20');
+  assert.equal(h.state().workProgress.phase, 'working');
+  h.setNow(localTime(31, 0)); h.controller.onResume();
+  assert.equal(h.state().workSchedule?.date, '2026-10-21');
+  assert.equal(h.state().workProgress.phase, 'before');
+  const future = { date: '2026-10-30', startTime: '09:00', endTime: '18:00' };
+  h.invoke('work-schedule', future);
+  h.setNow(localTime(24 * 3 + 8, 0)); h.controller.onResume();
+  assert.deepEqual(h.state().workSchedule, future);
+  h.setNow(localTime(10, 0)); h.tick();
+  assert.deepEqual(h.state().workSchedule, future);
+}));
+
+test('rollover save failures preserve the committed schedule and recover on retry', () => fixture([], (h, directory) => {
+  h.invoke('work-schedule', { date: '2026-10-20', startTime: '09:00', endTime: '18:00' });
+  const filename = join(directory, 'worktime.json');
+  renameSync(filename, filename + '.backup'); mkdirSync(filename);
+  h.setNow(localTime(24, 0)); h.tick();
+  assert.equal(h.state().workSchedule?.date, '2026-10-20');
+  assert.match(h.state().error!, /근무 날짜를 갱신하지 못/);
+  assert.equal(JSON.parse(readFileSync(filename + '.backup', 'utf8')).schedule.date, '2026-10-20');
+  rmSync(filename, { recursive: true }); renameSync(filename + '.backup', filename);
+  h.tick(60_000);
+  assert.equal(h.state().workSchedule?.date, '2026-10-21');
+  assert.equal(h.state().error, null);
+}));
+
+function nextCasual(h: Harness) {
+  for (let i = 0; i < 65 * 60 && h.state().bubble?.kind !== 'casual'; i++) h.tick(1000);
+  assert.equal(h.state().bubble?.kind, 'casual');
+  return h.state().bubble!;
+}
+
+test('casual conversation expires, opens chat only on activation and yields to reminders', () => fixture([], h => {
+  const first = nextCasual(h);
+  assert.equal(h.state().chatOpen, false);
+  assert.equal(h.state().chat.connection.status, 'unchecked');
+  assert.deepEqual(h.state().chat.messages, []);
+  h.tick(12_000); assert.equal(h.state().bubble, null);
+  const second = nextCasual(h);
+  assert.notEqual(second.text, first.text);
+  h.send('bubble-activate', first.id); assert.equal(h.state().chatOpen, false);
+  h.send('bubble-activate', second.id);
+  assert.equal(h.state().chatOpen, true); assert.equal(h.state().bubble, null);
+  assert.equal(h.state().chat.status, 'idle');
+  h.send('chat-close', undefined, 'chat');
+  nextCasual(h);
+  const alarm = showAlarm(h);
+  assert.equal(h.state().bubble?.id, alarm.id);
+  close(h, alarm.id); assert.equal(h.state().bubble, null, 'casual lines are never queued behind alarms');
+}));
+
+test('hidden, quiet and occupied pets never initiate conversation or reveal themselves', () => fixture([], h => {
+  h.send('visibility');
+  for (let i = 0; i < 70; i++) h.tick(60_000);
+  assert.equal(h.state().bubble, null); assert.equal(h.state().visible, false);
+  h.send('visibility'); h.send('panel-open', 'work');
+  for (let i = 0; i < 70; i++) h.tick(60_000);
+  assert.equal(h.state().bubble, null);
+  h.send('panel-close'); h.send('chat-open');
+  for (let i = 0; i < 70; i++) h.tick(60_000);
+  assert.equal(h.state().bubble, null);
+  h.send('chat-close', undefined, 'chat'); h.setNow(localTime(22, 0)); h.controller.onResume();
+  for (let i = 0; i < 8 * 60; i++) h.tick(60_000);
+  assert.equal(h.state().bubble, null);
+  h.setNow(localTime(34, 0)); h.controller.onResume(); h.tick();
+  assert.equal(h.state().bubble, null, 'resume starts a fresh interval');
+}));
+
+test('a held pointer and open context menu suppress casual conversation', () => fixture([], h => {
+  h.send('context-menu');
+  for (let i = 0; i < 70; i++) h.tick(60_000);
+  assert.equal(h.state().bubble, null);
+  h.menus.at(-1)!.closePopup();
+  h.send('pointer-begin', { x: 700, y: 400 });
+  h.send('pointer-move', { x: 720, y: 410 });
+  for (let i = 0; i < 70; i++) h.tick(60_000);
+  assert.equal(h.state().bubble, null); assert.equal(h.state().motion, 'dragged');
+  h.send('pointer-cancel');
+}));
 
 test('native controller delivers due reminders in order, rejects a stale close, and persists acknowledgements', () => {
   const later = memo('두 번째', '09:59', localTime(9, 59));
@@ -962,7 +1062,9 @@ for (const characterId of ['chelsea', 'chuchu'] as const) {
       assert.ok(pet.distance >= distance);
       distance = pet.distance;
     }
-    assert.ok(h.controller.widget.webContents.messages.length - sent <= 11, 'walking does not send full app state at every render frame');
+    const count = h.controller.widget.webContents.messages.length - sent;
+    if (characterId === 'chelsea') assert.ok(count >= 28 && count <= 32, 'Chelsea foot poses follow actual native movement samples without prediction');
+    else assert.ok(count <= 11, 'other pets retain the existing bounded update rate');
     const beforeSuspend = h.controller.widget.getBounds();
     h.tick(60_000);
     assert.deepEqual(h.controller.widget.getBounds(), beforeSuspend);
@@ -1038,4 +1140,47 @@ test('an archived memo alarm navigates to its original date without acknowledgin
     assert.equal(h.disk().memos[0].date, item.date);
     assert.equal(h.disk().memos[0].reminder!.acknowledged, false);
   } finally { h.dispose(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('casual messages make no provider calls and cannot replace collapsed AI requests or completed answers', async () => {
+  await chatFixture(async (h, reply, signals) => {
+    nextCasual(h);
+    assert.equal(signals.length, 0);
+    h.invoke('chat-ask', '사용자가 시작한 질문');
+    assert.equal(h.state().bubble?.kind, 'chat-loading');
+    close(h, h.state().bubble!.id);
+    for (let i = 0; i < 70; i++) h.tick(60_000);
+    assert.equal(h.state().bubble, null);
+    assert.equal(signals.length, 1);
+    reply('사용자가 기다린 답변'); await chatSettled();
+    const answer = h.state().bubble!;
+    assert.equal(answer.kind, 'chat');
+    for (let i = 0; i < 70; i++) h.tick(60_000);
+    assert.equal(h.state().bubble?.id, answer.id);
+    assert.equal(signals.length, 1);
+    assert.equal(h.state().chat.messages.length, 2);
+  });
+});
+
+test('Chelsea contact feet track published native X positions within one rounding pixel at all scales', () => {
+  for (const scale of [0.75, 1, 1.25, 1.5] as const) fixture([], h => {
+    h.invoke('appearance', { characterId: 'chelsea', scale }); walkPet(h);
+    const contacts = new Map<string, { min: number; max: number }>(); let samples = 0;
+    for (let i = 0; i < 180; i++) {
+      h.tick(1000 / 30);
+      const snapshot = h.controller.widget.webContents.messages.filter(message => message.channel === 'companion:state').at(-1)!.value as CompanionState;
+      if (snapshot.pet?.activity !== 'walk') break;
+      const d = snapshot.pet.strideDistance!;
+      for (const leg of getChelseaGait(d, snapshot.pet.facing).legs.filter(leg => leg.stance)) {
+        const cycle = Math.floor(d / CHELSEA_STRIDE - CHELSEA_CONTACTS[leg.id] + 1e-9);
+        const key = `${leg.id}:${cycle}`;
+        const x = h.controller.widget.getBounds().x + (140 + leg.paw.x) * scale;
+        const previous = contacts.get(key) ?? { min: x, max: x };
+        previous.min = Math.min(previous.min, x); previous.max = Math.max(previous.max, x); contacts.set(key, previous);
+        assert.ok(previous.max - previous.min <= 1.01, `${scale}/${key}: model contact slipped relative to the published native position`);
+        samples++;
+      }
+    }
+    assert.ok(samples > 50, 'check multiple sustained support phases, not a single screenshot');
+  });
 });

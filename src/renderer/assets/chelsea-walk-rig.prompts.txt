@@ -1,0 +1,21 @@
+Image tool edit of the existing packaged chelsea-pet.png, 2026-10-23.
+No private photographs or motion-capture data were used. PNG metadata retained.
+
+Create animation RIG PARTS, not a walk sprite sequence. Preserve Chelsea's gray
+longhair tabby identity, white muzzle/chest/paws, yellow-green eyes and existing
+soft painterly 2D art. Transparent PNG with exactly two columns and four rows,
+eight isolated connected parts, generous gutters and no labels, background or shadow.
+Row 1: matching right and left profile torso + neck + head + fluffy tail, all legs
+removed under the body, natural belly fur. These are disassembled animation assets,
+not injured animals; no wounds. Keep the original cat's body proportions and coat.
+Row 2: upper foreleg (shoulder/elbow) and lower foreleg (elbow/wrist), straight
+nearly vertical fur textures with rounded overlapping ends, no paw/body.
+Row 3: upper hind thigh and lower hind shank, thick/slim gray striped fur segments
+with rounded overlapping ends, no paw/body.
+Row 4: separate white front and hind paws in right-facing profile, flat undersides
+and short fur at the top to overlap the leg.
+
+The actual gait phases are authored in chelsea-gait.ts and rendered with affine
+part transforms. The tool was not asked to invent successive walking poses.
+The resulting parts do not themselves establish natural motion. See
+docs/chelsea-gait.md for the rejected atlas audit, sources and visual-review limits.

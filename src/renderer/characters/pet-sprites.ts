@@ -2,7 +2,7 @@ import type { CompanionState, Point, Rect } from '../../shared/contracts';
 import { PET_ATLAS, traceAlphaSilhouette, type PetFrameSelection, type PetFrameSelector } from './pet-animation';
 import { extractSpriteComponent, splitSpriteComponents } from './sprite-components';
 
-interface SpriteFrame {
+export interface SpriteFrame {
   image: HTMLCanvasElement;
   source: Rect;
   destination: Rect;
@@ -15,9 +15,11 @@ export interface PetSpriteLoader {
   prepare(): Promise<void>;
   getFrame(state: CompanionState, epochNow: number): PetSpriteFrame | null;
 }
+export interface PetSpriteLayout { columns: number; rows: number; width: number; height: number }
 
 /** Each pet owns its image, preparation and motion preference cache. */
-export function createPetSpriteLoader(assetUrl: string, selectFrame: PetFrameSelector): PetSpriteLoader {
+export function createPetSpriteLoader(assetUrl: string, selectFrame: PetFrameSelector,
+  layout: PetSpriteLayout = { ...PET_ATLAS, width: 128, height: 102 }): PetSpriteLoader {
   let atlas: SpriteAtlas | null = null;
   let preparation: Promise<void> | null = null;
   let motionPreference: MediaQueryList | null = null;
@@ -39,7 +41,7 @@ export function createPetSpriteLoader(assetUrl: string, selectFrame: PetFrameSel
           canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
           context.drawImage(image, 0, 0);
           const rgba = context.getImageData(0, 0, canvas.width, canvas.height).data;
-          const components = splitSpriteComponents(rgba, canvas.width, canvas.height, PET_ATLAS.columns, PET_ATLAS.rows);
+          const components = splitSpriteComponents(rgba, canvas.width, canvas.height, layout.columns, layout.rows);
           if (!components) { resolve(); return; }
           const actors = [];
           let maximumWidth = 1, maximumHeight = 1;
@@ -57,7 +59,7 @@ export function createPetSpriteLoader(assetUrl: string, selectFrame: PetFrameSel
             maximumHeight = Math.max(maximumHeight, silhouette.bounds.height);
             actors.push({ image: frameCanvas, silhouette });
           }
-          const scale = Math.min(128 / maximumWidth, 102 / maximumHeight);
+          const scale = Math.min(layout.width / maximumWidth, layout.height / maximumHeight);
           const frames: SpriteFrame[] = actors.map(({ image: actorImage, silhouette }) => {
             const { bounds } = silhouette;
             const foot = bounds.y + bounds.height;
@@ -87,8 +89,8 @@ export function createPetSpriteLoader(assetUrl: string, selectFrame: PetFrameSel
     if (!atlas) return null;
     if (!motionPreference && typeof window !== 'undefined' && window.matchMedia) motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
     const selection = selectFrame(state, epochNow, !!motionPreference?.matches);
-    const sprite = atlas.frames[selection.row * PET_ATLAS.columns + selection.column];
-    return { selection, ...sprite };
+    const sprite = atlas.frames[selection.row * layout.columns + selection.column];
+    return sprite ? { selection, ...sprite } : null;
   }
   return { prepare, getFrame };
 }
