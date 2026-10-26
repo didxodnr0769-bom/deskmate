@@ -21,7 +21,7 @@ const previousBundle = (await build({ stdin: { resolveDir: root, contents: `
 export { prepareChelseaSprites, getChelseaSpriteFrame } from './src/renderer/characters/chelsea-sprites';
 ` }, bundle: true, format: 'esm', write: false, plugins: [{ name: 'previous-reviewed-candidate', setup(b) {
   b.onLoad({ filter: /chelsea-(gait|walk-rig)\.ts$/ }, args => ({
-    contents: execFileSync('git', ['show', 'eb1ed4c:src/renderer/characters/' + args.path.split('/').at(-1)], { cwd: root }).toString(),
+    contents: execFileSync('git', ['show', '8681d3cf:src/renderer/characters/' + args.path.split('/').at(-1)], { cwd: root }).toString(),
     loader: 'ts', resolveDir: resolve(root, 'src/renderer/characters'),
   }));
 } }] })).outputFiles[0].text;
@@ -61,6 +61,10 @@ try {
     m.getChelseaSpriteFrame(held, epoch + 20);
     CanvasRenderingContext2D.prototype.drawImage = drawImage;
     if (heldDrawCalls !== 0) throw new Error('held actual-distance pose should reuse its raster between IPC samples');
+    const stablePixels = new Uint8ClampedArray(m.getChelseaSpriteFrame(held, epoch + 20).image.getContext('2d').getImageData(0, 0, 400, 240).data);
+    m.getChelseaSpriteFrame(state(33), epoch + 500);
+    const repeatedPixels = m.getChelseaSpriteFrame(held, epoch + 1200).image.getContext('2d').getImageData(0, 0, 400, 240).data;
+    if (!stablePixels.every((value, index) => value === repeatedPixels[index])) throw new Error('same gait pose must have identical fur pixels after repaint; no time-dependent sparkle');
     const renderTimings = [];
     for (let i = 0; i < 180; i++) {
       const start = performance.now();
@@ -119,7 +123,7 @@ try {
     window.drawReview = seconds => {
       ctx.fillStyle = '#f5f5ef'; ctx.fillRect(0, 0, 1000, 460);
       ctx.fillStyle = '#354238'; ctx.font = '17px system-ui'; ctx.fillText('첼시 보행 비교 · 실제 렌더러 / 위치·시간은 제어된 모의 환경', 22, 30);
-      ctx.font = '13px system-ui'; ctx.fillText('위: eb1ed4c (분절 다리)    아래: 연속 털 표면·지지에 따른 하중 이동 (검토 후보)', 22, 55);
+      ctx.font = '13px system-ui'; ctx.fillText('위: 이전 8681d3c    아래: 같은 움직임 + 다리·발 볼륨 보정', 22, 55);
       const left = seconds >= 7.5, t = left ? seconds - 7.5 : seconds;
       const direction = left ? -1 : 1, walkTime = Math.max(0, Math.min(5.5, t - 0.45)), distance = walkTime * 32;
       const root = left ? 520 - distance : 180 + distance;
@@ -136,7 +140,7 @@ try {
       if (old) drawFrame(old, root, 180);
       const frame = m.getChelseaSpriteFrame(s, now); drawFrame(frame, root, 365);
       ctx.fillStyle = '#354238'; ctx.font = '13px system-ui';
-      ctx.fillText(`이전 eb1ed4c: 분절 다리 / 같은 56px 보폭`, 22, 205);
+      ctx.fillText(`이전 8681d3c: 잔털 보정 / 가는 다리`, 22, 205);
       ctx.fillText(`수정 후보: 보폭 ${m.CHELSEA_STRIDE}px / ${s.pet.activity} / ${direction > 0 ? '오른쪽' : '왼쪽'}`, 22, 392);
       const g = m.getChelseaGait(distance, direction);
       if (window.showContactMarkers && s.pet.activity === 'walk') for (const leg of g.legs) {
@@ -195,6 +199,25 @@ try {
       });
       return sheet.toDataURL('image/png').split(',')[1];
     };
+    window.drawFurComparison = () => {
+      const sheet = document.createElement('canvas'); sheet.width = 1100; sheet.height = 480;
+      const sc=sheet.getContext('2d');sc.fillStyle='#f5f5ef';sc.fillRect(0,0,1100,480);
+      sc.fillStyle='#354238';sc.font='17px system-ui';sc.fillText('정면 기준 / 이전 보행 / 다리·발 볼륨 보정 · 같은 거리·자세',20,30);
+      const s=state(85), front=original.getFrame({...base,motion:'idle',pet:undefined},epoch);
+      const a=previous.getChelseaSpriteFrame(s,epoch),b=m.getChelseaSpriteFrame(s,epoch);
+      const oldPixels=a.image.getContext('2d').getImageData(0,0,400,240).data, newPixels=b.image.getContext('2d').getImageData(0,0,400,240).data;
+      for(let i=0;i<400*128*4;i++) if(oldPixels[i]!==newPixels[i]) throw new Error('fur-only change altered head/back pixels above the legs');
+      for(const [frame,x,label] of [[front,150,'정면 기준'],[a,460,'보정 전 8681d3c'],[b,790,'볼륨 보정 후']]){
+        const src=frame.source,dst=frame.destination;
+        sc.drawImage(frame.image,src.x,src.y,src.width,src.height,x+dst.x,160+dst.y,dst.width,dst.height);
+        sc.font='14px system-ui';sc.fillText(label,x-40,190);
+      }
+      sc.font='13px system-ui';sc.fillText('아래: 다리 부분 4배 확대 (위는 실제 크기)',20,235);
+      sc.drawImage(a.image,90,158,220,70,40,270,440,140);
+      sc.drawImage(b.image,90,158,220,70,590,270,440,140);
+      sc.fillText('보정 전',40,435);sc.fillText('보정 후',590,435);
+      return sheet.toDataURL('image/png').split(',')[1];
+    };
     window.drawReview(2.1);
     return { walkBounds, transitionBounds, browserRenderMs, heldDrawCalls, startingTransitionsChecked: 56, rigParts: 8, actualRigLoaded: true };
   });
@@ -205,6 +228,7 @@ try {
   }
   const minimumWalkHeight = Math.min(...measurements.walkBounds.map(b => b.height));
   for (const bounds of measurements.transitionBounds) assert.ok(bounds.height >= minimumWalkHeight * 0.9, 'stop-to-sit must not shrink through a small legacy turn pose');
+  await writeFile(out + '/fur-comparison.png', Buffer.from(await page.evaluate(() => window.drawFurComparison()), 'base64'));
   await writeFile(out + '/walking-phases.png', Buffer.from(await page.evaluate(() => window.drawFilmstrip()), 'base64'));
   await writeFile(out + '/transition-calibration.png', Buffer.from(await page.evaluate(() => window.drawCalibration()), 'base64'));
   await writeFile(out + '/stop-transitions.png', Buffer.from(await page.evaluate(() => window.drawTransitions()), 'base64'));
@@ -221,5 +245,5 @@ try {
   }
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ status: 'passed', artParts: 8, posesChecked: measurements.walkBounds.length,
-    transitionsChecked: measurements.transitionBounds.length, startingTransitionsChecked: measurements.startingTransitionsChecked, evidence: out, nativeReview: 'pending; no naturalness claim' }));
+    transitionsChecked: measurements.transitionBounds.length, startingTransitionsChecked: measurements.startingTransitionsChecked, evidence: out, nativeReview: 'motion accepted 2026-10-26; fur polish awaits native review' }));
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
